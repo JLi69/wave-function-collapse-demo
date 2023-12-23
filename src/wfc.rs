@@ -142,8 +142,10 @@ impl WFCParameters {
         let mut rng = rand::thread_rng();
 
         let mut not_collapsed: Vec<usize> = (0..superpositions.len()).collect();
+        let mut collapsed_set = HashSet::<usize>::new();
         let mut lowest_entropy_tiles =
             lowest_entropy(&superpositions, &not_collapsed, self.wfc_tiles.len());
+        let mut queue = VecDeque::<(isize, isize)>::new();
         //Repeat until we have collapsed each tile into a single state
         while lowest_entropy_tiles.len() > 0 {
             //Find the tile with the lowest "entropy"
@@ -156,14 +158,18 @@ impl WFCParameters {
             let x = (rand_tile_index % w) as isize;
             let y = (rand_tile_index / w) as isize;
             update_adjacent_tiles(&mut superpositions, x, y, w, h, &self.wfc_rules);
+            collapsed_set.insert(rand_tile_index);
 
             //Propagate the tile's properties
-            let mut queue = VecDeque::<(isize, isize)>::new();
             let mut visited = vec![false; w * h];
             queue.push_back((x, y));
             while !queue.is_empty() {
                 let (posx, posy) = queue[0];
                 queue.pop_front();
+
+                if superpositions[posx as usize + posy as usize * w].len() <= 1 {
+                    collapsed_set.insert(posx as usize + posy as usize * w);
+                }
 
                 if visited[posx as usize + posy as usize * w] {
                     continue;
@@ -187,6 +193,10 @@ impl WFCParameters {
                     }
 
                     if visited[index] {
+                        continue;
+                    }
+
+                    if collapsed_set.contains(&(adj_x as usize + adj_y as usize * h)) {
                         continue;
                     }
 
@@ -257,14 +267,18 @@ fn update_adjacent_tiles(
         let adj_y = adj_y as usize;
         let index = adj_x + adj_y * w;
 
+        let mut allowed = HashSet::<usize>::new();
+        for tile in &superpositions[x as usize + y as usize * w] {
+            for tile2 in &rules[*tile][direction] {
+                allowed.insert(*tile2);
+            }
+        }
+
         let mut updated = vec![];
         for tile in &superpositions[index] {
-            for tile2 in &superpositions[x as usize + y as usize * w] {
-                if rules[*tile2][direction].contains(tile) {
-                    updated.push(*tile);
-                    break;
-                }
-            }
+            if allowed.contains(tile) {
+                updated.push(*tile);
+            } 
         }
 
         superpositions[index] = updated;

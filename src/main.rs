@@ -16,6 +16,7 @@ struct ImageData {
 }
 
 const PIXEL_SIZE: f32 = 8.0;
+
 fn wrap_value(v: isize, max: usize) -> usize {
     (v % max as isize + max as isize) as usize % max
 }
@@ -99,7 +100,6 @@ fn u32_to_color(pixel: u32) -> Color {
 struct WinHandler {
     input_image: ImageData,
     output_image: ImageData,
-    parameters: wfc::WFCParameters,
 }
 
 //Main drawing loop
@@ -115,25 +115,6 @@ impl WindowHandler for WinHandler {
             self.input_image.width as f32 * PIXEL_SIZE + PIXEL_SIZE,
             0.0,
         );
-
-        let mut ix = 0.0;
-        let mut iy = std::cmp::max(self.input_image.height, self.output_image.height) as f32
-            * PIXEL_SIZE
-            + PIXEL_SIZE;
-        for tile in &self.parameters.wfc_tiles {
-            let tile_img = ImageData {
-                pixels: tile.clone(),
-                width: self.parameters.wfc_tile_sz,
-                height: self.parameters.wfc_tile_sz,
-            };
-            tile_img.display_image(graphics, PIXEL_SIZE, ix, iy);
-            ix += self.parameters.wfc_tile_sz as f32 * PIXEL_SIZE + PIXEL_SIZE;
-
-            if ix > 768.0 {
-                ix = 0.0;
-                iy += self.parameters.wfc_tile_sz as f32 * PIXEL_SIZE + PIXEL_SIZE;
-            }
-        }
 
         helper.request_redraw();
     }
@@ -165,7 +146,6 @@ fn main() {
             window.run_loop(WinHandler {
                 input_image: data,
                 output_image: generated,
-                parameters: wfc_parameters,
             });
         }
         Err(msg) => {
