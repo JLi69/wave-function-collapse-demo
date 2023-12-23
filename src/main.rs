@@ -5,7 +5,7 @@ use speedy2d::{
     window::{WindowHandler, WindowHelper},
     Graphics2D, Window,
 };
-use std::{env, fs::File};
+use std::{env, fs::File, time::Instant};
 
 mod wfc;
 
@@ -15,9 +15,7 @@ struct ImageData {
     height: usize,
 }
 
-const PIXEL_SIZE: f32 = 8.0;
-
-fn wrap_value(v: isize, max: usize) -> usize {
+const PIXEL_SIZE: f32 = 8.0; fn wrap_value(v: isize, max: usize) -> usize {
     (v % max as isize + max as isize) as usize % max
 }
 
@@ -99,6 +97,7 @@ fn u32_to_color(pixel: u32) -> Color {
 
 struct WinHandler {
     input_image: ImageData,
+    output_image: ImageData,
     parameters: wfc::WFCParameters,
 }
 
@@ -109,8 +108,12 @@ impl WindowHandler for WinHandler {
         self.input_image
             .display_image(graphics, PIXEL_SIZE, 0.0, 0.0);
 
-        let mut ix = self.input_image.width as f32 * PIXEL_SIZE;
-        let mut iy = 0.0f32;
+        self.output_image
+            .display_image(graphics, PIXEL_SIZE, self.input_image.width as f32 * PIXEL_SIZE + PIXEL_SIZE, 0.0);
+
+        let mut ix = 0.0;
+        let mut iy = std::cmp::max(self.input_image.height, self.output_image.height) as f32 
+            * PIXEL_SIZE + PIXEL_SIZE;
         for tile in &self.parameters.wfc_tiles {
             let tile_img = ImageData {
                 pixels: tile.clone(),
@@ -121,7 +124,7 @@ impl WindowHandler for WinHandler {
             ix += self.parameters.wfc_tile_sz as f32 * PIXEL_SIZE + PIXEL_SIZE;
 
             if ix > 768.0 {
-                ix = self.input_image.width as f32 * PIXEL_SIZE;
+                ix = 0.0;
                 iy += self.parameters.wfc_tile_sz as f32 * PIXEL_SIZE + PIXEL_SIZE;
             }
         }
@@ -146,9 +149,16 @@ fn main() {
     match img_data {
         Ok(data) => {
             let wfc_parameters = wfc::WFCParameters::from_image_data(&data, 3);
-            let window = Window::new_centered("wave function collapse demo", (800, 600)).unwrap();
+
+            let start = Instant::now();
+            let generated = wfc_parameters.generate_grid(64, 64);
+            let seconds = start.elapsed().as_secs_f64();
+            eprintln!("Took {} sec to generate image", seconds);
+
+            let window = Window::new_centered("wave function collapse demo", (800, 640)).unwrap();
             window.run_loop(WinHandler { 
                 input_image: data,
+                output_image: generated,
                 parameters: wfc_parameters
             });
         }
