@@ -15,7 +15,8 @@ struct ImageData {
     height: usize,
 }
 
-const PIXEL_SIZE: f32 = 8.0; fn wrap_value(v: isize, max: usize) -> usize {
+const PIXEL_SIZE: f32 = 8.0;
+fn wrap_value(v: isize, max: usize) -> usize {
     (v % max as isize + max as isize) as usize % max
 }
 
@@ -53,7 +54,7 @@ impl ImageData {
         }
 
         self.pixels[y * self.width + x]
-    } 
+    }
 
     //Same as get_pixel but wraps around the edges
     fn get_pixel_wrap(&self, x: isize, y: isize) -> u32 {
@@ -108,12 +109,17 @@ impl WindowHandler for WinHandler {
         self.input_image
             .display_image(graphics, PIXEL_SIZE, 0.0, 0.0);
 
-        self.output_image
-            .display_image(graphics, PIXEL_SIZE, self.input_image.width as f32 * PIXEL_SIZE + PIXEL_SIZE, 0.0);
+        self.output_image.display_image(
+            graphics,
+            PIXEL_SIZE,
+            self.input_image.width as f32 * PIXEL_SIZE + PIXEL_SIZE,
+            0.0,
+        );
 
         let mut ix = 0.0;
-        let mut iy = std::cmp::max(self.input_image.height, self.output_image.height) as f32 
-            * PIXEL_SIZE + PIXEL_SIZE;
+        let mut iy = std::cmp::max(self.input_image.height, self.output_image.height) as f32
+            * PIXEL_SIZE
+            + PIXEL_SIZE;
         for tile in &self.parameters.wfc_tiles {
             let tile_img = ImageData {
                 pixels: tile.clone(),
@@ -156,10 +162,10 @@ fn main() {
             eprintln!("Took {} sec to generate image", seconds);
 
             let window = Window::new_centered("wave function collapse demo", (800, 640)).unwrap();
-            window.run_loop(WinHandler { 
+            window.run_loop(WinHandler {
                 input_image: data,
                 output_image: generated,
-                parameters: wfc_parameters
+                parameters: wfc_parameters,
             });
         }
         Err(msg) => {
