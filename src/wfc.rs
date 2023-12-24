@@ -2,19 +2,20 @@ use rand::{rngs::ThreadRng, Rng};
 
 use crate::{wrap_value, ImageData};
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{HashMap, HashSet},
     ops::Range,
 };
 
 type Tile = Vec<u32>;
-type Rules = [HashSet<usize>; 4];
 
-const UP: usize = 0;
-const RIGHT: usize = 1;
-const DOWN: usize = 2;
-const LEFT: usize = 3;
-const DIRECTIONS: Range<usize> = UP..(LEFT + 1);
-const OFFSETS: [(isize, isize); 4] = [(0, -1), (1, 0), (0, 1), (-1, 0)];
+const OFFSETS: [(isize, isize); 4] = [
+    (0, -1), 
+    (1, 0), 
+    (0, 1), 
+    (-1, 0),
+];
+const DIRECTIONS: Range<usize> = 0..OFFSETS.len();
+type Rules = [HashSet<usize>; OFFSETS.len()];
 
 fn empty_rule() -> Rules {
     [
@@ -100,26 +101,19 @@ impl WFCParameters {
             for x in 0..(data.width as isize) {
                 let id = grid_ids[y as usize * data.width + x as usize];
 
-                add_rule(
-                    &mut rules[id],
-                    UP,
-                    get_id(&grid_ids, x, y - 1, data.width, data.height),
-                );
-                add_rule(
-                    &mut rules[id],
-                    RIGHT,
-                    get_id(&grid_ids, x + 1, y, data.width, data.height),
-                );
-                add_rule(
-                    &mut rules[id],
-                    DOWN,
-                    get_id(&grid_ids, x, y + 1, data.width, data.height),
-                );
-                add_rule(
-                    &mut rules[id],
-                    LEFT,
-                    get_id(&grid_ids, x - 1, y, data.width, data.height),
-                );
+                for direction in DIRECTIONS {
+                    add_rule(
+                        &mut rules[id],
+                        direction,
+                        get_id(
+                            &grid_ids, 
+                            x + OFFSETS[direction].0, 
+                            y + OFFSETS[direction].1, 
+                            data.width, 
+                            data.height
+                        ),
+                    );
+                }
             }
         }
 
@@ -145,7 +139,6 @@ impl WFCParameters {
         let mut collapsed_set = HashSet::<usize>::new();
         let mut lowest_entropy_tiles =
             lowest_entropy(&superpositions, &not_collapsed, self.wfc_tiles.len());
-        let mut queue = VecDeque::<(isize, isize)>::new();
         //Repeat until we have collapsed each tile into a single state
         while lowest_entropy_tiles.len() > 0 {
             //Find the tile with the lowest "entropy"
@@ -153,57 +146,22 @@ impl WFCParameters {
             //Collapse that tile into a random state that is allowed
             superpositions[rand_tile_index] =
                 vec![random_element(&superpositions[rand_tile_index], &mut rng).unwrap_or(0)];
-
             //Update surrounding tiles to only have valid tiles in the superposition
             let x = (rand_tile_index % w) as isize;
             let y = (rand_tile_index / w) as isize;
             update_adjacent_tiles(&mut superpositions, x, y, w, h, &self.wfc_rules);
             collapsed_set.insert(rand_tile_index);
-
-            //Propagate the tile's properties
-            let mut visited = vec![false; w * h];
-            queue.push_back((x, y));
-            while !queue.is_empty() {
-                let (posx, posy) = queue[0];
-                queue.pop_front();
-
-                if superpositions[posx as usize + posy as usize * w].len() <= 1 {
-                    collapsed_set.insert(posx as usize + posy as usize * w);
-                }
-
-                if visited[posx as usize + posy as usize * w] {
-                    continue;
-                }
-
-                visited[posx as usize + posy as usize * w] = true;
-                update_adjacent_tiles(&mut superpositions, posx, posy, w, h, &self.wfc_rules);
-                for direction in DIRECTIONS {
-                    let (adj_x, adj_y) = (posx + OFFSETS[direction].0, posy + OFFSETS[direction].1);
-
-                    if out_of_bounds(adj_x, adj_y, w, h) {
-                        continue;
-                    }
-
-                    let index = adj_x as usize + adj_y as usize * w;
-
-                    if superpositions[index].len() == self.wfc_tiles.len()
-                        || superpositions[index].len() == 0
-                    {
-                        continue;
-                    }
-
-                    if visited[index] {
-                        continue;
-                    }
-
-                    if collapsed_set.contains(&(adj_x as usize + adj_y as usize * h)) {
-                        continue;
-                    }
-
-                    queue.push_back((adj_x, adj_y));
-                }
-            }
-
+            //Propagate
+            propagate(
+                &mut superpositions, 
+                &mut collapsed_set, 
+                &self.wfc_rules, 
+                x, 
+                y, 
+                w, 
+                h, 
+                self.wfc_tiles.len()
+            );
             not_collapsed = not_collapsed
                 .iter()
                 .filter(|index| superpositions[**index].len() > 1)
@@ -213,29 +171,40 @@ impl WFCParameters {
                 lowest_entropy(&superpositions, &not_collapsed, self.wfc_tiles.len());
         }
 
-        for y in 0..h {
-            for x in 0..w {
-                let index = y * w + x;
-                let center = if self.wfc_tile_sz % 2 == 1 {
-                    self.wfc_tile_sz / 2
-                } else {
-                    self.wfc_tile_sz / 2 - 1
-                };
-                let tile_index = center * self.wfc_tile_sz + center;
-
-                if superpositions[index].is_empty() {
-                    continue;
-                }
-
-                grid[index] = self.wfc_tiles[superpositions[index][0]][tile_index];
-            }
-        }
+        copy_superpositions_to_grid(
+            &mut grid, 
+            &superpositions, 
+            &self.wfc_tiles, 
+            self.wfc_tile_sz,
+        );
 
         ImageData {
             pixels: grid,
             width: w,
             height: h,
         }
+    }
+}
+
+fn copy_superpositions_to_grid(
+    grid: &mut Vec<u32>,
+    superpositions: &Vec<Vec<usize>>, 
+    wfc_tiles: &Vec<Tile>,
+    wfc_tile_sz: usize,
+) {
+    for i in 0..superpositions.len() {
+        let center = if wfc_tile_sz % 2 == 1 {
+            wfc_tile_sz / 2
+        } else {
+            wfc_tile_sz / 2 - 1
+        };
+        let tile_index = center * wfc_tile_sz + center;
+
+        if superpositions[i].is_empty() {
+            continue;
+        }
+
+        grid[i] = wfc_tiles[superpositions[i][0]][tile_index];
     }
 }
 
@@ -282,6 +251,62 @@ fn update_adjacent_tiles(
         }
 
         superpositions[index] = updated;
+    }
+}
+
+fn propagate(
+    superpositions: &mut Vec<Vec<usize>>,
+    collapsed_set: &mut HashSet<usize>,
+    wfc_rules: &Vec<Rules>,
+    x: isize,
+    y: isize,
+    w: usize,
+    h: usize,
+    max_entropy: usize,
+) {
+    let mut stack = Vec::<(isize, isize)>::new();
+    //Propagate the tile's properties
+    let mut visited = vec![false; w * h];
+    stack.push((x, y));
+    while !stack.is_empty() {
+        let (posx, posy) = match stack.pop() {
+            Some(p) => p,
+            _ => return,
+        };
+
+        if superpositions[posx as usize + posy as usize * w].len() <= 1 {
+            collapsed_set.insert(posx as usize + posy as usize * w);
+        }
+
+        if visited[posx as usize + posy as usize * w] {
+            continue;
+        }
+
+        visited[posx as usize + posy as usize * w] = true;
+        update_adjacent_tiles(superpositions, posx, posy, w, h, &wfc_rules);
+        for direction in DIRECTIONS {
+            let (adj_x, adj_y) = (posx + OFFSETS[direction].0, posy + OFFSETS[direction].1);
+
+            if out_of_bounds(adj_x, adj_y, w, h) {
+                continue;
+            }
+
+            let index = adj_x as usize + adj_y as usize * w;
+
+            if superpositions[index].len() == max_entropy {
+                continue;
+            }
+
+            if visited[index] {
+                continue;
+            }
+
+            if collapsed_set.contains(&(adj_x as usize + adj_y as usize * h)) {
+                continue;
+            }
+
+            stack.push((adj_x, adj_y));
+        }
     }
 }
 
