@@ -5,10 +5,11 @@ use speedy2d::{
     window::{WindowHandler, WindowHelper},
     Graphics2D, Window,
 };
-use std::{env, fs::File, time::Instant};
+use std::{env, fs::File};
 
 mod wfc;
 
+#[derive(Clone)]
 struct ImageData {
     pixels: Vec<u32>,
     width: usize,
@@ -18,10 +19,22 @@ struct ImageData {
 const PIXEL_SIZE: f32 = 8.0;
 
 fn wrap_value(v: isize, max: usize) -> usize {
-    (v % max as isize + max as isize) as usize % max
+    if v < 0 {
+        max - ((-v) as usize % max)
+    } else {
+        v as usize % max
+    }
 }
 
 impl ImageData {
+    fn new(w: usize, h: usize) -> Self {
+        Self {
+            pixels: vec![0; w * h],
+            width: w,
+            height: h,
+        }
+    }
+
     //Load the image data from a png
     fn load_png(path: &str) -> Result<Self, String> {
         let decoder = png::Decoder::new(File::open(path).map_err(|e| e.to_string())?);
@@ -59,7 +72,9 @@ impl ImageData {
 
     //Same as get_pixel but wraps around the edges
     fn get_pixel_wrap(&self, x: isize, y: isize) -> u32 {
-        self.pixels[wrap_value(x, self.width) + wrap_value(y, self.height) * self.width]
+        let wrapped_x = wrap_value(x, self.width);
+        let wrapped_y = wrap_value(y, self.height);
+        self.pixels[wrapped_x + wrapped_y * self.width]
     }
 
     //Simple function to display the image onto the window
@@ -100,6 +115,31 @@ fn u32_to_color(pixel: u32) -> Color {
 struct WinHandler {
     input_image: ImageData,
     output_image: ImageData,
+    parameters: wfc::WFCParameters,
+    lowest_entropy_tiles: Vec<usize>,
+    superpositions: Vec<Vec<usize>>,
+    not_collapsed: Vec<usize>,
+}
+
+impl WinHandler {
+    fn new(input_img: &ImageData, wfc_parameters: &wfc::WFCParameters) -> Self {
+        let w = 64;
+        let h = 64;
+
+        let superpos = {
+            let id_list: Vec<usize> = (0..wfc_parameters.wfc_tiles.len()).collect();
+            vec![id_list; w * h]
+        };
+
+        Self {
+            input_image: input_img.clone(),
+            output_image: ImageData::new(w, h),
+            parameters: wfc_parameters.clone(),
+            lowest_entropy_tiles: vec![],
+            superpositions: superpos.clone(),
+            not_collapsed: (0..superpos.len()).collect(),
+        }
+    }
 }
 
 //Main drawing loop
@@ -108,6 +148,57 @@ impl WindowHandler for WinHandler {
         graphics.clear_screen(Color::from_rgb(1.0, 1.0, 1.0));
         self.input_image
             .display_image(graphics, PIXEL_SIZE, 0.0, 0.0);
+
+        let mut rng = rand::thread_rng();
+
+        self.lowest_entropy_tiles = wfc::lowest_entropy(
+            &self.superpositions,
+            &self.not_collapsed,
+            self.parameters.wfc_tiles.len(),
+        );
+        //Repeat until we have collapsed each tile into a single state
+        if self.lowest_entropy_tiles.len() > 0 {
+            //Find the tile with the lowest "entropy"
+            let rand_tile_index =
+                wfc::random_element(&self.lowest_entropy_tiles, &mut rng).unwrap_or(0);
+            //Collapse that tile into a random state that is allowed
+            self.superpositions[rand_tile_index] =
+                vec![
+                    wfc::random_element(&self.superpositions[rand_tile_index], &mut rng)
+                        .unwrap_or(0),
+                ];
+            //Update surrounding tiles to only have valid tiles in the superposition
+            let x = (rand_tile_index % self.output_image.width) as isize;
+            let y = (rand_tile_index / self.output_image.width) as isize;
+            //Propagate
+            wfc::propagate(
+                &mut self.superpositions,
+                &self.parameters.wfc_rules,
+                x,
+                y,
+                self.output_image.width,
+                self.output_image.height,
+            );
+
+            self.not_collapsed = self
+                .not_collapsed
+                .iter()
+                .filter(|index| self.superpositions[**index].len() > 1)
+                .map(|index| *index)
+                .collect();
+            self.lowest_entropy_tiles = wfc::lowest_entropy(
+                &self.superpositions,
+                &self.not_collapsed,
+                self.parameters.wfc_tiles.len(),
+            );
+        }
+
+        wfc::copy_superpositions_to_grid(
+            &mut self.output_image.pixels,
+            &self.superpositions,
+            &self.parameters.wfc_tiles,
+            self.parameters.wfc_tile_sz,
+        );
 
         self.output_image.display_image(
             graphics,
@@ -137,16 +228,13 @@ fn main() {
         Ok(data) => {
             let wfc_parameters = wfc::WFCParameters::from_image_data(&data, 3);
 
-            let start = Instant::now();
+            /*let start = Instant::now();
             let generated = wfc_parameters.generate_grid(64, 64);
             let seconds = start.elapsed().as_secs_f64();
-            eprintln!("Took {} sec to generate image", seconds);
+            eprintln!("Took {} sec to generate image", seconds);*/
 
             let window = Window::new_centered("wave function collapse demo", (800, 640)).unwrap();
-            window.run_loop(WinHandler {
-                input_image: data,
-                output_image: generated,
-            });
+            window.run_loop(WinHandler::new(&data, &wfc_parameters));
         }
         Err(msg) => {
             eprintln!("failed to open file: {}", args[1]);

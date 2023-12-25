@@ -1,6 +1,6 @@
 use rand::{rngs::ThreadRng, Rng};
 
-use crate::{wrap_value, ImageData};
+use crate::{u32_to_color, wrap_value, ImageData};
 use std::{
     collections::{HashMap, HashSet},
     ops::Range,
@@ -8,12 +8,7 @@ use std::{
 
 type Tile = Vec<u32>;
 
-const OFFSETS: [(isize, isize); 4] = [
-    (0, -1), 
-    (1, 0), 
-    (0, 1), 
-    (-1, 0),
-];
+const OFFSETS: [(isize, isize); 4] = [(0, -1), (1, 0), (0, 1), (-1, 0)];
 const DIRECTIONS: Range<usize> = 0..OFFSETS.len();
 type Rules = [HashSet<usize>; OFFSETS.len()];
 
@@ -58,6 +53,7 @@ fn get_id(grid_ids: &[usize], x: isize, y: isize, width: usize, height: usize) -
     grid_ids[wrap_value(y, height) * width + wrap_value(x, width)]
 }
 
+#[derive(Clone)]
 pub struct WFCParameters {
     pub wfc_tiles: Vec<Tile>,
     pub wfc_rules: Vec<Rules>,
@@ -106,16 +102,27 @@ impl WFCParameters {
                         &mut rules[id],
                         direction,
                         get_id(
-                            &grid_ids, 
-                            x + OFFSETS[direction].0, 
-                            y + OFFSETS[direction].1, 
-                            data.width, 
-                            data.height
+                            &grid_ids,
+                            x + OFFSETS[direction].0,
+                            y + OFFSETS[direction].1,
+                            data.width,
+                            data.height,
                         ),
                     );
                 }
             }
         }
+
+        /*for (i, tile_rule) in rules.iter().enumerate() {
+            eprintln!("Tile: {i}");
+            for rule in tile_rule {
+                for tile in rule {
+                    eprint!("{tile} ");
+                }
+                eprintln!();
+            }
+            eprintln!("-------------");
+        }*/
 
         Self {
             wfc_tiles: tiles,
@@ -125,6 +132,7 @@ impl WFCParameters {
         }
     }
 
+    #[allow(dead_code)]
     pub fn generate_grid(&self, w: usize, h: usize) -> ImageData {
         let mut grid = vec![0; w * h];
 
@@ -136,7 +144,6 @@ impl WFCParameters {
         let mut rng = rand::thread_rng();
 
         let mut not_collapsed: Vec<usize> = (0..superpositions.len()).collect();
-        let mut collapsed_set = HashSet::<usize>::new();
         let mut lowest_entropy_tiles =
             lowest_entropy(&superpositions, &not_collapsed, self.wfc_tiles.len());
         //Repeat until we have collapsed each tile into a single state
@@ -149,19 +156,9 @@ impl WFCParameters {
             //Update surrounding tiles to only have valid tiles in the superposition
             let x = (rand_tile_index % w) as isize;
             let y = (rand_tile_index / w) as isize;
-            update_adjacent_tiles(&mut superpositions, x, y, w, h, &self.wfc_rules);
-            collapsed_set.insert(rand_tile_index);
             //Propagate
-            propagate(
-                &mut superpositions, 
-                &mut collapsed_set, 
-                &self.wfc_rules, 
-                x, 
-                y, 
-                w, 
-                h, 
-                self.wfc_tiles.len()
-            );
+            propagate(&mut superpositions, &self.wfc_rules, x, y, w, h);
+
             not_collapsed = not_collapsed
                 .iter()
                 .filter(|index| superpositions[**index].len() > 1)
@@ -172,9 +169,9 @@ impl WFCParameters {
         }
 
         copy_superpositions_to_grid(
-            &mut grid, 
-            &superpositions, 
-            &self.wfc_tiles, 
+            &mut grid,
+            &superpositions,
+            &self.wfc_tiles,
             self.wfc_tile_sz,
         );
 
@@ -186,9 +183,9 @@ impl WFCParameters {
     }
 }
 
-fn copy_superpositions_to_grid(
+pub fn copy_superpositions_to_grid(
     grid: &mut Vec<u32>,
-    superpositions: &Vec<Vec<usize>>, 
+    superpositions: &Vec<Vec<usize>>,
     wfc_tiles: &Vec<Tile>,
     wfc_tile_sz: usize,
 ) {
@@ -200,7 +197,26 @@ fn copy_superpositions_to_grid(
         };
         let tile_index = center * wfc_tile_sz + center;
 
-        if superpositions[i].is_empty() {
+        if superpositions[i].len() == 0 {
+            grid[i] = 0;
+            continue;
+        } else if superpositions[i].len() > 1 {
+            let (mut r, mut g, mut b) = (0.0f32, 0.0f32, 0.0f32);
+            let mut count = 0.0f32;
+            for val in &superpositions[i] {
+                let col = u32_to_color(wfc_tiles[*val][tile_index]);
+                r += col.r();
+                g += col.g();
+                b += col.b();
+                count += 1.0;
+            }
+            let (avg_r, avg_g, avg_b) = (r / count, g / count, b / count);
+            let (avg_r, avg_g, avg_b) = (
+                (avg_r * 255.0) as u32,
+                (avg_g * 255.0) as u32,
+                (avg_b * 255.0) as u32,
+            );
+            grid[i] = avg_b << 16 | avg_g << 8 | avg_r | 0xff << 24;
             continue;
         }
 
@@ -212,7 +228,7 @@ fn out_of_bounds(x: isize, y: isize, w: usize, h: usize) -> bool {
     x < 0 || y < 0 || x >= w as isize || y >= h as isize
 }
 
-fn update_adjacent_tiles(
+pub fn update_adjacent_tiles(
     superpositions: &mut Vec<Vec<usize>>,
     x: isize,
     y: isize,
@@ -232,10 +248,6 @@ fn update_adjacent_tiles(
             continue;
         }
 
-        let adj_x = adj_x as usize;
-        let adj_y = adj_y as usize;
-        let index = adj_x + adj_y * w;
-
         let mut allowed = HashSet::<usize>::new();
         for tile in &superpositions[x as usize + y as usize * w] {
             for tile2 in &rules[*tile][direction] {
@@ -243,30 +255,29 @@ fn update_adjacent_tiles(
             }
         }
 
+        let adj_x = adj_x as usize;
+        let adj_y = adj_y as usize;
+        let index = adj_x + adj_y * w;
         let mut updated = vec![];
         for tile in &superpositions[index] {
             if allowed.contains(tile) {
                 updated.push(*tile);
-            } 
+            }
         }
-
         superpositions[index] = updated;
     }
 }
 
-fn propagate(
+pub fn propagate(
     superpositions: &mut Vec<Vec<usize>>,
-    collapsed_set: &mut HashSet<usize>,
     wfc_rules: &Vec<Rules>,
     x: isize,
     y: isize,
     w: usize,
     h: usize,
-    max_entropy: usize,
 ) {
     let mut stack = Vec::<(isize, isize)>::new();
     //Propagate the tile's properties
-    let mut visited = vec![false; w * h];
     stack.push((x, y));
     while !stack.is_empty() {
         let (posx, posy) = match stack.pop() {
@@ -274,16 +285,20 @@ fn propagate(
             _ => return,
         };
 
-        if superpositions[posx as usize + posy as usize * w].len() <= 1 {
-            collapsed_set.insert(posx as usize + posy as usize * w);
+        let mut prev_entropy = vec![0; OFFSETS.len()];
+        for direction in DIRECTIONS {
+            let (adj_x, adj_y) = (posx + OFFSETS[direction].0, posy + OFFSETS[direction].1);
+
+            if out_of_bounds(adj_x, adj_y, w, h) {
+                continue;
+            }
+
+            let index = adj_x as usize + adj_y as usize * w;
+            prev_entropy[direction] = superpositions[index].len();
         }
 
-        if visited[posx as usize + posy as usize * w] {
-            continue;
-        }
+        update_adjacent_tiles(superpositions, posx, posy, w, h, wfc_rules);
 
-        visited[posx as usize + posy as usize * w] = true;
-        update_adjacent_tiles(superpositions, posx, posy, w, h, &wfc_rules);
         for direction in DIRECTIONS {
             let (adj_x, adj_y) = (posx + OFFSETS[direction].0, posy + OFFSETS[direction].1);
 
@@ -293,15 +308,11 @@ fn propagate(
 
             let index = adj_x as usize + adj_y as usize * w;
 
-            if superpositions[index].len() == max_entropy {
-                continue;
-            }
+            /*if superpositions[index].len() == 0 {
+                panic!("WFC FAILED!");
+            }*/
 
-            if visited[index] {
-                continue;
-            }
-
-            if collapsed_set.contains(&(adj_x as usize + adj_y as usize * h)) {
+            if superpositions[index].len() == prev_entropy[direction] {
                 continue;
             }
 
@@ -312,7 +323,7 @@ fn propagate(
 
 //Returns a vector of indices of elements with the lowest entropy
 //This function will ignore all elements with length 1
-fn lowest_entropy(
+pub fn lowest_entropy(
     superpositions: &Vec<Vec<usize>>,
     not_collapsed: &Vec<usize>,
     max_entropy: usize,
@@ -335,7 +346,7 @@ fn lowest_entropy(
     res
 }
 
-fn random_element<T: Copy>(vec: &Vec<T>, rng: &mut ThreadRng) -> Option<T> {
+pub fn random_element<T: Copy>(vec: &Vec<T>, rng: &mut ThreadRng) -> Option<T> {
     if vec.is_empty() {
         return None;
     }
