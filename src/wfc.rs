@@ -8,12 +8,7 @@ use std::{
 
 type Tile = Vec<u32>;
 
-const OFFSETS: [(isize, isize); 4] = [
-    (0, -1), 
-    (1, 0), 
-    (0, 1), 
-    (-1, 0),
-];
+const OFFSETS: [(isize, isize); 4] = [(0, -1), (1, 0), (0, 1), (-1, 0)];
 const DIRECTIONS: Range<usize> = 0..OFFSETS.len();
 type Rules = [HashSet<usize>; OFFSETS.len()];
 
@@ -29,21 +24,10 @@ fn empty_rule() -> Rules {
 fn sample_square(data: &ImageData, tile_sz: isize, tile_x: isize, tile_y: isize) -> Tile {
     let mut tile = vec![0; (tile_sz * tile_sz) as usize];
 
-    if tile_sz % 2 == 1 {
-        for y in (tile_y - tile_sz / 2)..(tile_y + tile_sz / 2 + 1) {
-            for x in (tile_x - tile_sz / 2)..(tile_x + tile_sz / 2 + 1) {
-                let ind = ((x - (tile_x - tile_sz / 2)) + (y - (tile_y - tile_sz / 2)) * tile_sz)
-                    as usize;
-                tile[ind] = data.get_pixel_wrap(x, y);
-            }
-        }
-    } else if tile_sz % 2 == 0 {
-        for y in (tile_y - tile_sz / 2)..(tile_y + tile_sz / 2) {
-            for x in (tile_x - tile_sz / 2)..(tile_x + tile_sz / 2) {
-                let ind = ((x - (tile_x - tile_sz / 2)) + (y - (tile_y - tile_sz / 2)) * tile_sz)
-                    as usize;
-                tile[ind] = data.get_pixel_wrap(x, y);
-            }
+    for y in tile_y..(tile_y + tile_sz) {
+        for x in tile_x..(tile_x + tile_sz) {
+            let ind = ((x - tile_x) + (y - tile_y) * tile_sz) as usize;
+            tile[ind] = data.get_pixel_wrap(x, y);
         }
     }
 
@@ -89,10 +73,11 @@ impl WFCParameters {
                     None => {
                         tile_ids.insert(tile.clone(), id);
                         grid_ids[y * data.width + x] = id;
-                        id += 1;
                         tiles.push(tile.clone());
                         rules.push(empty_rule());
                         frequency.push(1);
+
+                        id += 1;
                     }
                 }
             }
@@ -100,8 +85,7 @@ impl WFCParameters {
 
         for y in 0..(data.height as isize) {
             for x in 0..(data.width as isize) {
-                let id = grid_ids[y as usize * data.width + x as usize];
-
+                let id = get_id(&grid_ids, x, y, data.width, data.height);
                 for direction in DIRECTIONS {
                     add_rule(
                         &mut rules[id],
@@ -118,17 +102,6 @@ impl WFCParameters {
             }
         }
 
-        /*for (i, tile_rule) in rules.iter().enumerate() {
-            eprintln!("Tile: {i}");
-            for rule in tile_rule {
-                for tile in rule {
-                    eprint!("{tile} ");
-                }
-                eprintln!();
-            }
-            eprintln!("-------------");
-        }*/
-
         Self {
             wfc_tiles: tiles,
             wfc_rules: rules,
@@ -138,7 +111,7 @@ impl WFCParameters {
     }
 
     #[allow(dead_code)]
-    pub fn generate_grid(&self, w: usize, h: usize) -> ImageData {
+    pub fn generate_grid(&self, w: usize, h: usize) -> Result<ImageData, String> {
         let mut grid = vec![0; w * h];
 
         let mut superpositions = {
@@ -152,7 +125,7 @@ impl WFCParameters {
         let mut lowest_entropy_tiles =
             lowest_entropy(&superpositions, &not_collapsed, self.wfc_tiles.len());
         //Repeat until we have collapsed each tile into a single state
-        while lowest_entropy_tiles.len() > 0 {
+        while !lowest_entropy_tiles.is_empty() {
             //Find the tile with the lowest "entropy"
             let rand_tile_index = random_element(&lowest_entropy_tiles, &mut rng).unwrap_or(0);
             //Collapse that tile into a random state that is allowed
@@ -162,54 +135,40 @@ impl WFCParameters {
             let x = (rand_tile_index % w) as isize;
             let y = (rand_tile_index / w) as isize;
             //Propagate
-            propagate(&mut superpositions, &self.wfc_rules, x, y, w, h);
+            let failed = propagate(&mut superpositions, &self.wfc_rules, x, y, w, h);
+            if failed {
+                return Err("WFC Failed".to_string());
+            }
 
-            not_collapsed = not_collapsed
-                .iter()
-                .filter(|index| superpositions[**index].len() > 1)
-                .map(|index| *index)
-                .collect();
+            not_collapsed.retain(|index| superpositions[*index].len() > 1);
             lowest_entropy_tiles =
                 lowest_entropy(&superpositions, &not_collapsed, self.wfc_tiles.len());
         }
 
-        copy_superpositions_to_grid(
-            &mut grid,
-            &superpositions,
-            &self.wfc_tiles,
-            self.wfc_tile_sz,
-        );
+        copy_superpositions_to_grid(&mut grid, &superpositions, &self.wfc_tiles);
 
-        ImageData {
+        Ok(ImageData {
             pixels: grid,
             width: w,
             height: h,
-        }
+        })
     }
 }
 
 pub fn copy_superpositions_to_grid(
-    grid: &mut Vec<u32>,
-    superpositions: &Vec<Vec<usize>>,
-    wfc_tiles: &Vec<Tile>,
-    wfc_tile_sz: usize,
+    grid: &mut [u32],
+    superpositions: &[Vec<usize>],
+    wfc_tiles: &[Tile],
 ) {
     for i in 0..superpositions.len() {
-        let center = if wfc_tile_sz % 2 == 1 {
-            wfc_tile_sz / 2
-        } else {
-            wfc_tile_sz / 2 - 1
-        };
-        let tile_index = center * wfc_tile_sz + center;
-
-        if superpositions[i].len() == 0 {
+        if superpositions[i].is_empty() {
             grid[i] = 0;
             continue;
         } else if superpositions[i].len() > 1 {
             let (mut r, mut g, mut b) = (0.0f32, 0.0f32, 0.0f32);
             let mut count = 0.0f32;
             for val in &superpositions[i] {
-                let col = u32_to_color(wfc_tiles[*val][tile_index]);
+                let col = u32_to_color(wfc_tiles[*val][0]);
                 r += col.r();
                 g += col.g();
                 b += col.b();
@@ -225,7 +184,7 @@ pub fn copy_superpositions_to_grid(
             continue;
         }
 
-        grid[i] = wfc_tiles[superpositions[i][0]][tile_index];
+        grid[i] = wfc_tiles[superpositions[i][0]][0];
     }
 }
 
@@ -234,12 +193,12 @@ fn out_of_bounds(x: isize, y: isize, w: usize, h: usize) -> bool {
 }
 
 pub fn update_adjacent_tiles(
-    superpositions: &mut Vec<Vec<usize>>,
+    superpositions: &mut [Vec<usize>],
     x: isize,
     y: isize,
     w: usize,
     h: usize,
-    rules: &Vec<Rules>,
+    rules: &[Rules],
 ) {
     if out_of_bounds(x, y, w, h) {
         return;
@@ -276,14 +235,15 @@ pub fn update_adjacent_tiles(
 //Returns true if no contradictions were found,
 //false otherwise
 pub fn propagate(
-    superpositions: &mut Vec<Vec<usize>>,
-    wfc_rules: &Vec<Rules>,
+    superpositions: &mut [Vec<usize>],
+    wfc_rules: &[Rules],
     x: isize,
     y: isize,
     w: usize,
     h: usize,
 ) -> bool {
     let mut stack = Vec::<(isize, isize)>::new();
+    let mut prev_entropy = vec![0; OFFSETS.len()];
     //Propagate the tile's properties
     stack.push((x, y));
     while !stack.is_empty() {
@@ -292,7 +252,6 @@ pub fn propagate(
             _ => return false,
         };
 
-        let mut prev_entropy = vec![0; OFFSETS.len()];
         for direction in DIRECTIONS {
             let (adj_x, adj_y) = (posx + OFFSETS[direction].0, posy + OFFSETS[direction].1);
 
@@ -315,8 +274,8 @@ pub fn propagate(
 
             let index = adj_x as usize + adj_y as usize * w;
 
-            if superpositions[index].len() == 0 {
-                return true; 
+            if superpositions[index].is_empty() {
+                return true;
             }
 
             if superpositions[index].len() == prev_entropy[direction] {
@@ -333,8 +292,8 @@ pub fn propagate(
 //Returns a vector of indices of elements with the lowest entropy
 //This function will ignore all elements with length 1
 pub fn lowest_entropy(
-    superpositions: &Vec<Vec<usize>>,
-    not_collapsed: &Vec<usize>,
+    superpositions: &[Vec<usize>],
+    not_collapsed: &[usize],
     max_entropy: usize,
 ) -> Vec<usize> {
     let mut min_entropy = max_entropy;
@@ -355,10 +314,11 @@ pub fn lowest_entropy(
     res
 }
 
-pub fn random_element<T: Copy>(vec: &Vec<T>, rng: &mut ThreadRng) -> Option<T> {
+pub fn random_element<T: Copy>(vec: &[T], rng: &mut ThreadRng) -> Option<T> {
     if vec.is_empty() {
         return None;
     }
+
     let index = rng.gen::<usize>() % vec.len();
     Some(vec[index])
 }

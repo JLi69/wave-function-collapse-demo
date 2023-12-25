@@ -157,7 +157,7 @@ impl WindowHandler for WinHandler {
             self.parameters.wfc_tiles.len(),
         );
         //Repeat until we have collapsed each tile into a single state
-        if self.lowest_entropy_tiles.len() > 0 {
+        if !self.lowest_entropy_tiles.is_empty() {
             //Find the tile with the lowest "entropy"
             let rand_tile_index =
                 wfc::random_element(&self.lowest_entropy_tiles, &mut rng).unwrap_or(0);
@@ -185,7 +185,7 @@ impl WindowHandler for WinHandler {
                 let w = self.output_image.width;
                 let h = self.output_image.height;
                 self.output_image = ImageData::new(w, h);
-                self.lowest_entropy_tiles.clear(); 
+                self.lowest_entropy_tiles.clear();
                 self.superpositions = {
                     let id_list: Vec<usize> = (0..self.parameters.wfc_tiles.len()).collect();
                     vec![id_list; w * h]
@@ -196,12 +196,8 @@ impl WindowHandler for WinHandler {
                 return;
             }
 
-            self.not_collapsed = self
-                .not_collapsed
-                .iter()
-                .filter(|index| self.superpositions[**index].len() > 1)
-                .map(|index| *index)
-                .collect();
+            self.not_collapsed
+                .retain(|index| self.superpositions[*index].len() > 1);
             self.lowest_entropy_tiles = wfc::lowest_entropy(
                 &self.superpositions,
                 &self.not_collapsed,
@@ -213,7 +209,6 @@ impl WindowHandler for WinHandler {
             &mut self.output_image.pixels,
             &self.superpositions,
             &self.parameters.wfc_tiles,
-            self.parameters.wfc_tile_sz,
         );
 
         self.output_image.display_image(
