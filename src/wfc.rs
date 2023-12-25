@@ -8,7 +8,12 @@ use std::{
 
 type Tile = Vec<u32>;
 
-const OFFSETS: [(isize, isize); 4] = [(0, -1), (1, 0), (0, 1), (-1, 0)];
+const OFFSETS: [(isize, isize); 4] = [
+    (0, -1), 
+    (1, 0), 
+    (0, 1), 
+    (-1, 0),
+];
 const DIRECTIONS: Range<usize> = 0..OFFSETS.len();
 type Rules = [HashSet<usize>; OFFSETS.len()];
 
@@ -268,6 +273,8 @@ pub fn update_adjacent_tiles(
     }
 }
 
+//Returns true if no contradictions were found,
+//false otherwise
 pub fn propagate(
     superpositions: &mut Vec<Vec<usize>>,
     wfc_rules: &Vec<Rules>,
@@ -275,14 +282,14 @@ pub fn propagate(
     y: isize,
     w: usize,
     h: usize,
-) {
+) -> bool {
     let mut stack = Vec::<(isize, isize)>::new();
     //Propagate the tile's properties
     stack.push((x, y));
     while !stack.is_empty() {
         let (posx, posy) = match stack.pop() {
             Some(p) => p,
-            _ => return,
+            _ => return false,
         };
 
         let mut prev_entropy = vec![0; OFFSETS.len()];
@@ -308,9 +315,9 @@ pub fn propagate(
 
             let index = adj_x as usize + adj_y as usize * w;
 
-            /*if superpositions[index].len() == 0 {
-                panic!("WFC FAILED!");
-            }*/
+            if superpositions[index].len() == 0 {
+                return true; 
+            }
 
             if superpositions[index].len() == prev_entropy[direction] {
                 continue;
@@ -319,6 +326,8 @@ pub fn propagate(
             stack.push((adj_x, adj_y));
         }
     }
+
+    false
 }
 
 //Returns a vector of indices of elements with the lowest entropy

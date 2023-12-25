@@ -171,7 +171,7 @@ impl WindowHandler for WinHandler {
             let x = (rand_tile_index % self.output_image.width) as isize;
             let y = (rand_tile_index / self.output_image.width) as isize;
             //Propagate
-            wfc::propagate(
+            let failed = wfc::propagate(
                 &mut self.superpositions,
                 &self.parameters.wfc_rules,
                 x,
@@ -179,6 +179,22 @@ impl WindowHandler for WinHandler {
                 self.output_image.width,
                 self.output_image.height,
             );
+
+            if failed {
+                eprintln!("FAILED - RESTARTING WFC");
+                let w = self.output_image.width;
+                let h = self.output_image.height;
+                self.output_image = ImageData::new(w, h);
+                self.lowest_entropy_tiles.clear(); 
+                self.superpositions = {
+                    let id_list: Vec<usize> = (0..self.parameters.wfc_tiles.len()).collect();
+                    vec![id_list; w * h]
+                };
+
+                self.not_collapsed = (0..self.superpositions.len()).collect();
+                helper.request_redraw();
+                return;
+            }
 
             self.not_collapsed = self
                 .not_collapsed
