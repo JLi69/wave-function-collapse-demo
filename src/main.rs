@@ -178,6 +178,7 @@ impl WindowHandler for WinHandler {
                 y,
                 self.output_image.width,
                 self.output_image.height,
+                &self.parameters.tile_offsets
             );
 
             if failed {
