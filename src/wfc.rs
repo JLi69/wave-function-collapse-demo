@@ -142,7 +142,7 @@ impl WFCParameters {
 
         let mut not_collapsed: Vec<usize> = (0..superpositions.len()).collect();
         let mut lowest_entropy_tiles =
-            lowest_entropy(&superpositions, &not_collapsed, self.wfc_tiles.len());
+            lowest_entropy(&superpositions, &not_collapsed, &self.wfc_frequency);
         //Repeat until we have collapsed each tile into a single state
         while !lowest_entropy_tiles.is_empty() {
             //Find the tile with the lowest "entropy"
@@ -166,7 +166,7 @@ impl WFCParameters {
 
             not_collapsed.retain(|index| superpositions[*index].len() > 1);
             lowest_entropy_tiles =
-                lowest_entropy(&superpositions, &not_collapsed, self.wfc_tiles.len());
+                lowest_entropy(&superpositions, &not_collapsed, &self.wfc_frequency);
         }
 
         copy_superpositions_to_grid(&mut grid, &superpositions, &self.wfc_tiles);
@@ -313,25 +313,46 @@ pub fn propagate(
     false
 }
 
+fn entropy(superposition: &[usize], frequencies: &[u32]) -> f32 {
+    let mut total = 0;
+    for value in superposition {
+        total += frequencies[*value];
+    }
+
+    let mut res = 0.0;
+    for value in superposition {
+        let prob = frequencies[*value] as f32 / total as f32;
+        res += prob * -prob.log2();
+    }
+    res
+}
+
 //Returns a vector of indices of elements with the lowest entropy
 //This function will ignore all elements with length 1
 pub fn lowest_entropy(
     superpositions: &[Vec<usize>],
     not_collapsed: &[usize],
-    max_entropy: usize,
+    frequencies: &[u32],
 ) -> Vec<usize> {
-    let mut min_entropy = max_entropy;
+    if not_collapsed.is_empty() {
+        return vec![];
+    }
 
-    for i in not_collapsed {
-        if superpositions[*i].len() < min_entropy {
-            min_entropy = superpositions[*i].len();
+    let mut min_entropy = entropy(&superpositions[not_collapsed[0]], frequencies);
+
+    let mut cached_entropy = vec![0.0f32; not_collapsed.len()];
+    for (i, tile) in not_collapsed.iter().enumerate() {
+        let tile_entropy = entropy(&superpositions[*tile], frequencies);
+        if tile_entropy < min_entropy {
+            min_entropy = tile_entropy;
         }
+        cached_entropy[i] = tile_entropy;
     }
 
     let mut res = vec![];
-    for i in not_collapsed {
-        if superpositions[*i].len() == min_entropy {
-            res.push(*i);
+    for (i, tile) in not_collapsed.iter().enumerate() {
+        if cached_entropy[i] == min_entropy {
+            res.push(*tile);
         }
     }
 

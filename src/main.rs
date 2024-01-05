@@ -154,7 +154,7 @@ impl WindowHandler for WinHandler {
         self.lowest_entropy_tiles = wfc::lowest_entropy(
             &self.superpositions,
             &self.not_collapsed,
-            self.parameters.wfc_tiles.len(),
+            &self.parameters.wfc_frequency
         );
         //Repeat until we have collapsed each tile into a single state
         if !self.lowest_entropy_tiles.is_empty() {
@@ -204,7 +204,7 @@ impl WindowHandler for WinHandler {
             self.lowest_entropy_tiles = wfc::lowest_entropy(
                 &self.superpositions,
                 &self.not_collapsed,
-                self.parameters.wfc_tiles.len(),
+                &self.parameters.wfc_frequency
             );
         }
 
@@ -242,10 +242,10 @@ fn main() {
         Ok(data) => {
             let wfc_parameters = wfc::WFCParameters::from_image_data(&data, 3);
 
-            /*let start = ::std::time::Instant::now();
+            let start = ::std::time::Instant::now();
             let _generated = wfc_parameters.generate_grid(64, 64);
             let seconds = start.elapsed().as_secs_f64();
-            eprintln!("Took {} sec to generate image", seconds);*/
+            eprintln!("Took {} sec to generate image", seconds);
 
             let window = Window::new_centered("wave function collapse demo", (800, 640)).unwrap();
             window.run_loop(WinHandler::new(&data, &wfc_parameters));
