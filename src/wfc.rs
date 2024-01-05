@@ -1,16 +1,9 @@
-use rand::{rngs::ThreadRng, Rng};
-
 use crate::{u32_to_color, ImageData};
+use rand::{rngs::ThreadRng, Rng};
 use std::collections::HashMap;
 
 type Tile = Vec<u32>;
-type Rules = Vec<Vec<bool>>;
-
-const OFFSETS: [(isize, isize); 4] = [ (0, 1), (1, 0), (0, -1), (-1, 0) ];
-
-fn empty_rule(tile_count: usize) -> Rules {
-    vec![vec![false; tile_count]; OFFSETS.len()]
-}
+const OFFSETS: [(isize, isize); 4] = [(0, 1), (1, 0), (0, -1), (-1, 0)];
 
 fn sample_square(data: &ImageData, tile_sz: isize, tile_x: isize, tile_y: isize) -> Tile {
     let mut tile = vec![0; (tile_sz * tile_sz) as usize];
@@ -25,16 +18,42 @@ fn sample_square(data: &ImageData, tile_sz: isize, tile_x: isize, tile_y: isize)
     tile
 }
 
-fn add_rule(rules: &mut Rules, direction: usize, id: usize) {
-    rules[direction][id] = true;
+#[derive(Clone)]
+pub struct RuleTable {
+    rules: Vec<bool>,
+    tile_count: usize,
 }
 
-fn tiles_match(tile1: &Tile, tile2: &Tile, offset_x: isize, offset_y: isize, tile_sz: isize) -> bool {
+impl RuleTable {
+    fn new(count: usize) -> Self {
+        Self {
+            rules: vec![false; count * count * OFFSETS.len()],
+            tile_count: count,
+        }
+    }
+
+    fn add_rule(&mut self, direction: usize, id1: usize, id2: usize) {
+        self.rules[id1 * self.tile_count * OFFSETS.len() + direction * self.tile_count + id2] =
+            true;
+    }
+
+    fn okay(&self, direction: usize, id1: usize, id2: usize) -> bool {
+        self.rules[id1 * self.tile_count * OFFSETS.len() + direction * self.tile_count + id2]
+    }
+}
+
+fn tiles_match(
+    tile1: &Tile,
+    tile2: &Tile,
+    offset_x: isize,
+    offset_y: isize,
+    tile_sz: isize,
+) -> bool {
     for y in 0..tile_sz {
         for x in 0..tile_sz {
             let offset_x = x - offset_x;
             let offset_y = y - offset_y;
-            
+
             if offset_x < 0 || offset_y < 0 || offset_x >= tile_sz || offset_y >= tile_sz {
                 continue;
             }
@@ -54,7 +73,7 @@ fn tiles_match(tile1: &Tile, tile2: &Tile, offset_x: isize, offset_y: isize, til
 #[derive(Clone)]
 pub struct WFCParameters {
     pub wfc_tiles: Vec<u32>,
-    pub wfc_rules: Vec<Rules>,
+    pub wfc_rules: RuleTable,
     pub wfc_frequency: Vec<u32>,
     pub wfc_tile_sz: usize,
 }
@@ -90,13 +109,13 @@ impl WFCParameters {
             }
         }
 
-        let mut rules = vec![empty_rule(tile_ids.len()); tile_ids.len()];
+        let mut rules = RuleTable::new(tiles.len());
 
         for (id1, tile1) in tiles.iter().enumerate() {
             for (id2, tile2) in tiles.iter().enumerate() {
                 for (direction, offset) in OFFSETS.iter().enumerate() {
                     if tiles_match(tile1, tile2, offset.0, offset.1, tile_sz) {
-                        add_rule(&mut rules[id1], direction, id2);
+                        rules.add_rule(direction, id1, id2);
                     }
                 }
             }
@@ -198,24 +217,24 @@ pub fn update_adjacent_tiles(
     y: isize,
     w: usize,
     h: usize,
-    rules: &[Rules],
+    rules: &RuleTable,
 ) {
     if out_of_bounds(x, y, w, h) {
         return;
     }
 
-    for direction in 0..OFFSETS.len() {
-        let adj_x = OFFSETS[direction].0 + x;
-        let adj_y = OFFSETS[direction].1 + y;
+    for (direction, offset) in OFFSETS.iter().enumerate() {
+        let adj_x = offset.0 + x;
+        let adj_y = offset.1 + y;
 
         if out_of_bounds(adj_x, adj_y, w, h) {
             continue;
         }
 
-        let mut allowed = vec![false; rules.len()];
+        let mut allowed = vec![false; rules.tile_count];
         for tile in &superpositions[x as usize + y as usize * w] {
-            for (tile2, valid) in rules[*tile][direction].iter().enumerate() {
-                allowed[tile2] = allowed[tile2] || *valid;
+            for (tile2, rule) in allowed.iter_mut().enumerate().take(rules.tile_count) {
+                *rule = *rule || rules.okay(direction, *tile, tile2)
             }
         }
 
@@ -236,7 +255,7 @@ pub fn update_adjacent_tiles(
 //false otherwise
 pub fn propagate(
     superpositions: &mut [Vec<usize>],
-    wfc_rules: &[Rules],
+    wfc_rules: &RuleTable,
     x: isize,
     y: isize,
     w: usize,
