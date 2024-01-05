@@ -1,4 +1,4 @@
-use crate::{u32_to_color, ImageData};
+use crate::{image_data::u32_to_color, image_data::ImageData};
 use rand::{rngs::ThreadRng, Rng};
 use std::collections::HashMap;
 
@@ -88,8 +88,8 @@ impl WFCParameters {
         let mut tiles = Vec::<Tile>::new();
         let mut frequency = Vec::<u32>::new();
         //let mut grid_ids = vec![0usize; data.width * data.height];
-        for y in 0..data.height {
-            for x in 0..data.width {
+        for y in 0..data.height() {
+            for x in 0..data.width() {
                 let tile = sample_square(data, tile_sz, x as isize, y as isize);
 
                 match tile_ids.get(&tile) {
@@ -171,11 +171,7 @@ impl WFCParameters {
 
         copy_superpositions_to_grid(&mut grid, &superpositions, &self.wfc_tiles);
 
-        Ok(ImageData {
-            pixels: grid,
-            width: w,
-            height: h,
-        })
+        Ok(ImageData::from_pixels(&grid, w, h))
     }
 }
 
@@ -193,9 +189,9 @@ pub fn copy_superpositions_to_grid(
             let mut count = 0.0f32;
             for val in &superpositions[i] {
                 let col = u32_to_color(wfc_tiles[*val]);
-                r += col.r();
-                g += col.g();
-                b += col.b();
+                r += col.0;
+                g += col.1;
+                b += col.2;
                 count += 1.0;
             }
             let (avg_r, avg_g, avg_b) = (r / count, g / count, b / count);
