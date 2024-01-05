@@ -1,29 +1,28 @@
 use rand::{rngs::ThreadRng, Rng};
 
 use crate::{u32_to_color, ImageData};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 type Tile = Vec<u32>;
-
-//const OFFSETS: [(isize, isize); 4] = [(0, -1), (1, 0), (0, 1), (-1, 0)];
-//const DIRECTIONS: Range<usize> = 0..OFFSETS.len();
-//type Rules = [HashSet<usize>; OFFSETS.len()];
-type Rules = Vec<HashSet<usize>>;
+type Rules = Vec<Vec<bool>>;
 
 fn generate_offsets(n: usize) -> Vec<(isize, isize)> {
     let mut offsets = vec![];
     for y in (-(n as isize - 1))..=(n as isize - 1) {
         for x in (-(n as isize - 1))..=(n as isize - 1) {
+            if y == 0 && x == 0 {
+                continue;
+            }
             offsets.push((x, y));
         }
     }
     offsets
 }
 
-fn empty_rule(offsets: &[(isize, isize)]) -> Rules {
+fn empty_rule(offsets: &[(isize, isize)], tile_count: usize) -> Rules {
     let mut rules = vec![];
     for _ in 0..offsets.len() {
-        rules.push(HashSet::new());
+        rules.push(vec![false; tile_count]);
     }
     rules
 }
@@ -42,7 +41,7 @@ fn sample_square(data: &ImageData, tile_sz: isize, tile_x: isize, tile_y: isize)
 }
 
 fn add_rule(rules: &mut Rules, direction: usize, id: usize) {
-    rules[direction].insert(id);
+    rules[direction][id] = true;
 }
 
 fn tiles_match(tile1: &Tile, tile2: &Tile, offset_x: isize, offset_y: isize, tile_sz: isize) -> bool {
@@ -85,7 +84,6 @@ impl WFCParameters {
         let mut id: usize = 0;
         let mut tile_ids = HashMap::<Tile, usize>::new();
         let mut tiles = Vec::<Tile>::new();
-        let mut rules = Vec::<Rules>::new();
         let mut frequency = Vec::<u32>::new();
         let mut grid_ids = vec![0usize; data.width * data.height];
         for y in 0..data.height {
@@ -101,7 +99,6 @@ impl WFCParameters {
                         tile_ids.insert(tile.clone(), id);
                         grid_ids[y * data.width + x] = id;
                         tiles.push(tile.clone());
-                        rules.push(empty_rule(&offsets));
                         frequency.push(1);
 
                         id += 1;
@@ -109,6 +106,8 @@ impl WFCParameters {
                 }
             }
         }
+
+        let mut rules = vec![empty_rule(&offsets, tile_ids.len()); tile_ids.len()];
 
         for (id1, tile1) in tiles.iter().enumerate() {
             for (id2, tile2) in tiles.iter().enumerate() {
@@ -218,7 +217,7 @@ pub fn update_adjacent_tiles(
     w: usize,
     h: usize,
     rules: &[Rules],
-    offsets: &[(isize, isize)]
+    offsets: &[(isize, isize)],
 ) {
     if out_of_bounds(x, y, w, h) {
         return;
@@ -232,10 +231,10 @@ pub fn update_adjacent_tiles(
             continue;
         }
 
-        let mut allowed = HashSet::<usize>::new();
+        let mut allowed = vec![false; rules.len()];
         for tile in &superpositions[x as usize + y as usize * w] {
-            for tile2 in &rules[*tile][direction] {
-                allowed.insert(*tile2);
+            for (tile2, valid) in rules[*tile][direction].iter().enumerate() {
+                allowed[tile2] = allowed[tile2] || *valid;
             }
         }
 
@@ -244,7 +243,7 @@ pub fn update_adjacent_tiles(
         let index = adj_x + adj_y * w;
         let mut updated = vec![];
         for tile in &superpositions[index] {
-            if allowed.contains(tile) {
+            if allowed[*tile] {
                 updated.push(*tile);
             }
         }
