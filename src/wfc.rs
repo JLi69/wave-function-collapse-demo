@@ -6,25 +6,10 @@ use std::collections::HashMap;
 type Tile = Vec<u32>;
 type Rules = Vec<Vec<bool>>;
 
-fn generate_offsets(n: usize) -> Vec<(isize, isize)> {
-    let mut offsets = vec![];
-    for y in (-(n as isize - 1))..=(n as isize - 1) {
-        for x in (-(n as isize - 1))..=(n as isize - 1) {
-            if y == 0 && x == 0 {
-                continue;
-            }
-            offsets.push((x, y));
-        }
-    }
-    offsets
-}
+const OFFSETS: [(isize, isize); 4] = [ (0, 1), (1, 0), (0, -1), (-1, 0) ];
 
-fn empty_rule(offsets: &[(isize, isize)], tile_count: usize) -> Rules {
-    let mut rules = vec![];
-    for _ in 0..offsets.len() {
-        rules.push(vec![false; tile_count]);
-    }
-    rules
+fn empty_rule(tile_count: usize) -> Rules {
+    vec![vec![false; tile_count]; OFFSETS.len()]
 }
 
 fn sample_square(data: &ImageData, tile_sz: isize, tile_x: isize, tile_y: isize) -> Tile {
@@ -68,11 +53,10 @@ fn tiles_match(tile1: &Tile, tile2: &Tile, offset_x: isize, offset_y: isize, til
 
 #[derive(Clone)]
 pub struct WFCParameters {
-    pub wfc_tiles: Vec<Tile>,
+    pub wfc_tiles: Vec<u32>,
     pub wfc_rules: Vec<Rules>,
     pub wfc_frequency: Vec<u32>,
     pub wfc_tile_sz: usize,
-    pub tile_offsets: Vec<(isize, isize)>,
 }
 
 impl WFCParameters {
@@ -80,7 +64,6 @@ impl WFCParameters {
     //and count their frequency and what they are adjacent to,
     //also assign a usize id to each one
     pub fn from_image_data(data: &ImageData, tile_sz: isize) -> Self {
-        let offsets = generate_offsets(tile_sz as usize);
         let mut id: usize = 0;
         let mut tile_ids = HashMap::<Tile, usize>::new();
         let mut tiles = Vec::<Tile>::new();
@@ -107,11 +90,11 @@ impl WFCParameters {
             }
         }
 
-        let mut rules = vec![empty_rule(&offsets, tile_ids.len()); tile_ids.len()];
+        let mut rules = vec![empty_rule(tile_ids.len()); tile_ids.len()];
 
         for (id1, tile1) in tiles.iter().enumerate() {
             for (id2, tile2) in tiles.iter().enumerate() {
-                for (direction, offset) in offsets.iter().enumerate() {
+                for (direction, offset) in OFFSETS.iter().enumerate() {
                     if tiles_match(tile1, tile2, offset.0, offset.1, tile_sz) {
                         add_rule(&mut rules[id1], direction, id2);
                     }
@@ -120,11 +103,10 @@ impl WFCParameters {
         }
 
         Self {
-            wfc_tiles: tiles,
+            wfc_tiles: tiles.iter().map(|tile| tile[0]).collect(),
             wfc_rules: rules,
             wfc_frequency: frequency,
             wfc_tile_sz: tile_sz as usize,
-            tile_offsets: offsets,
         }
     }
 
@@ -153,7 +135,7 @@ impl WFCParameters {
             let x = (rand_tile_index % w) as isize;
             let y = (rand_tile_index / w) as isize;
             //Propagate
-            let failed = propagate(&mut superpositions, &self.wfc_rules, x, y, w, h, &self.tile_offsets);
+            let failed = propagate(&mut superpositions, &self.wfc_rules, x, y, w, h);
             if failed {
                 return Err("WFC Failed".to_string());
             }
@@ -176,7 +158,7 @@ impl WFCParameters {
 pub fn copy_superpositions_to_grid(
     grid: &mut [u32],
     superpositions: &[Vec<usize>],
-    wfc_tiles: &[Tile],
+    wfc_tiles: &[u32],
 ) {
     for i in 0..superpositions.len() {
         if superpositions[i].is_empty() {
@@ -186,7 +168,7 @@ pub fn copy_superpositions_to_grid(
             let (mut r, mut g, mut b) = (0.0f32, 0.0f32, 0.0f32);
             let mut count = 0.0f32;
             for val in &superpositions[i] {
-                let col = u32_to_color(wfc_tiles[*val][0]);
+                let col = u32_to_color(wfc_tiles[*val]);
                 r += col.r();
                 g += col.g();
                 b += col.b();
@@ -202,7 +184,7 @@ pub fn copy_superpositions_to_grid(
             continue;
         }
 
-        grid[i] = wfc_tiles[superpositions[i][0]][0];
+        grid[i] = wfc_tiles[superpositions[i][0]];
     }
 }
 
@@ -217,15 +199,14 @@ pub fn update_adjacent_tiles(
     w: usize,
     h: usize,
     rules: &[Rules],
-    offsets: &[(isize, isize)],
 ) {
     if out_of_bounds(x, y, w, h) {
         return;
     }
 
-    for direction in 0..offsets.len() {
-        let adj_x = offsets[direction].0 + x;
-        let adj_y = offsets[direction].1 + y;
+    for direction in 0..OFFSETS.len() {
+        let adj_x = OFFSETS[direction].0 + x;
+        let adj_y = OFFSETS[direction].1 + y;
 
         if out_of_bounds(adj_x, adj_y, w, h) {
             continue;
@@ -260,10 +241,9 @@ pub fn propagate(
     y: isize,
     w: usize,
     h: usize,
-    offsets: &[(isize, isize)]
 ) -> bool {
     let mut stack = Vec::<(isize, isize)>::new();
-    let mut prev_entropy = vec![0; offsets.len()];
+    let mut prev_entropy = vec![0; OFFSETS.len()];
     //Propagate the tile's properties
     stack.push((x, y));
     while !stack.is_empty() {
@@ -272,8 +252,8 @@ pub fn propagate(
             _ => return false,
         };
 
-        for direction in 0..offsets.len() {
-            let (adj_x, adj_y) = (posx + offsets[direction].0, posy + offsets[direction].1);
+        for direction in 0..OFFSETS.len() {
+            let (adj_x, adj_y) = (posx + OFFSETS[direction].0, posy + OFFSETS[direction].1);
 
             if out_of_bounds(adj_x, adj_y, w, h) {
                 continue;
@@ -283,10 +263,10 @@ pub fn propagate(
             prev_entropy[direction] = superpositions[index].len();
         }
 
-        update_adjacent_tiles(superpositions, posx, posy, w, h, wfc_rules, offsets);
+        update_adjacent_tiles(superpositions, posx, posy, w, h, wfc_rules);
 
-        for direction in 0..offsets.len() {
-            let (adj_x, adj_y) = (posx + offsets[direction].0, posy + offsets[direction].1);
+        for direction in 0..OFFSETS.len() {
+            let (adj_x, adj_y) = (posx + OFFSETS[direction].0, posy + OFFSETS[direction].1);
 
             if out_of_bounds(adj_x, adj_y, w, h) {
                 continue;

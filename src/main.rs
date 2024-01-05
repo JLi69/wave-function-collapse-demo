@@ -178,7 +178,6 @@ impl WindowHandler for WinHandler {
                 y,
                 self.output_image.width,
                 self.output_image.height,
-                &self.parameters.tile_offsets
             );
 
             if failed {
@@ -240,8 +239,8 @@ fn main() {
         Ok(data) => {
             let wfc_parameters = wfc::WFCParameters::from_image_data(&data, 3);
 
-            /*let start = Instant::now();
-            let generated = wfc_parameters.generate_grid(64, 64);
+            /*let start = ::std::time::Instant::now();
+            let _generated = wfc_parameters.generate_grid(64, 64);
             let seconds = start.elapsed().as_secs_f64();
             eprintln!("Took {} sec to generate image", seconds);*/
 
