@@ -87,19 +87,19 @@ impl WFCParameters {
         let mut tile_ids = HashMap::<Tile, usize>::new();
         let mut tiles = Vec::<Tile>::new();
         let mut frequency = Vec::<u32>::new();
-        let mut grid_ids = vec![0usize; data.width * data.height];
+        //let mut grid_ids = vec![0usize; data.width * data.height];
         for y in 0..data.height {
             for x in 0..data.width {
                 let tile = sample_square(data, tile_sz, x as isize, y as isize);
 
                 match tile_ids.get(&tile) {
                     Some(i) => {
-                        grid_ids[y * data.width + x] = *i;
+                        //grid_ids[y * data.width + x] = *i;
                         frequency[*i] += 1;
                     }
                     None => {
                         tile_ids.insert(tile.clone(), id);
-                        grid_ids[y * data.width + x] = id;
+                        //grid_ids[y * data.width + x] = id;
                         tiles.push(tile.clone());
                         frequency.push(1);
 
@@ -146,10 +146,15 @@ impl WFCParameters {
         //Repeat until we have collapsed each tile into a single state
         while !lowest_entropy_tiles.is_empty() {
             //Find the tile with the lowest "entropy"
-            let rand_tile_index = random_element(&lowest_entropy_tiles, &mut rng).unwrap_or(0);
+            let rand_tile_index = random_element(&lowest_entropy_tiles, &mut rng, None).unwrap_or(0);
+
+            let weights: Vec<u32> = superpositions[rand_tile_index].iter()
+                .map(|tile| self.wfc_frequency[*tile])
+                .collect();
+
             //Collapse that tile into a random state that is allowed
             superpositions[rand_tile_index] =
-                vec![random_element(&superpositions[rand_tile_index], &mut rng).unwrap_or(0)];
+                vec![random_element(&superpositions[rand_tile_index], &mut rng, Some(&weights)).unwrap_or(0)];
             //Update surrounding tiles to only have valid tiles in the superposition
             let x = (rand_tile_index % w) as isize;
             let y = (rand_tile_index / w) as isize;
@@ -333,11 +338,40 @@ pub fn lowest_entropy(
     res
 }
 
-pub fn random_element<T: Copy>(vec: &[T], rng: &mut ThreadRng) -> Option<T> {
+fn generate_weighted(rng: &mut ThreadRng, weights: &[u32]) -> usize {
+    if weights.is_empty() {
+        return 0;
+    }
+
+    let mut total = 0;
+    for v in weights {
+        total += v;
+    }
+    let rand_value = rng.gen::<u32>() % total;
+    
+    let mut current_total = 0;
+    for (i, v) in weights.iter().enumerate() { 
+        current_total += v;
+        if rand_value < current_total {
+            return i;
+        }
+    }
+
+    return weights.len() - 1;
+}
+
+pub fn random_element<T: Copy>(vec: &[T], rng: &mut ThreadRng, weights: Option<&[u32]>) -> Option<T> {
     if vec.is_empty() {
         return None;
     }
 
-    let index = rng.gen::<usize>() % vec.len();
-    Some(vec[index])
+    match weights {
+        Some(weight_list) => {
+            Some(vec[generate_weighted(rng, weight_list)])
+        }
+        _ => {
+            let index = rng.gen::<usize>() % vec.len();
+            Some(vec[index])
+        }
+    }
 }

@@ -160,11 +160,14 @@ impl WindowHandler for WinHandler {
         if !self.lowest_entropy_tiles.is_empty() {
             //Find the tile with the lowest "entropy"
             let rand_tile_index =
-                wfc::random_element(&self.lowest_entropy_tiles, &mut rng).unwrap_or(0);
+                wfc::random_element(&self.lowest_entropy_tiles, &mut rng, None).unwrap_or(0);
             //Collapse that tile into a random state that is allowed
+            let weights: Vec<u32> = self.superpositions[rand_tile_index].iter()
+                .map(|tile| self.parameters.wfc_frequency[*tile])
+                .collect();
             self.superpositions[rand_tile_index] =
                 vec![
-                    wfc::random_element(&self.superpositions[rand_tile_index], &mut rng)
+                    wfc::random_element(&self.superpositions[rand_tile_index], &mut rng, Some(&weights))
                         .unwrap_or(0),
                 ];
             //Update surrounding tiles to only have valid tiles in the superposition
