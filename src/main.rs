@@ -11,6 +11,9 @@ use crate::image_data::ImageData;
 mod wfc;
 mod image_data;
 
+const PIXEL_SIZE: f32 = 8.0;
+const SPEED: u32 = 6;
+
 //Simple function to display the image onto the window
 //x and y are the top left corner of the image
 fn display_image(image: &ImageData, graphics: &mut Graphics2D, pixel_size: f32, x: f32, y: f32) {
@@ -38,9 +41,6 @@ fn display_image(image: &ImageData, graphics: &mut Graphics2D, pixel_size: f32, 
         .for_each(|pixel| graphics.draw_rectangle(pixel.0, pixel.1));
 }
 
-const PIXEL_SIZE: f32 = 8.0;
-const SPEED: u32 = 2;
-
 struct WinHandler {
     input_image: ImageData,
     output_image: ImageData,
@@ -48,6 +48,7 @@ struct WinHandler {
     lowest_entropy_tiles: Vec<usize>,
     superpositions: Vec<Vec<usize>>,
     not_collapsed: Vec<usize>,
+    current_frame: u32
 }
 
 impl WinHandler {
@@ -67,6 +68,7 @@ impl WinHandler {
             lowest_entropy_tiles: vec![],
             superpositions: superpos.clone(),
             not_collapsed: (0..superpos.len()).collect(),
+            current_frame: 0
         }
     }
 }
@@ -136,11 +138,13 @@ impl WindowHandler for WinHandler {
             );
         }
 
-        wfc::copy_superpositions_to_grid(
-            self.output_image.pixels_mut(),
-            &self.superpositions,
-            &self.parameters.wfc_tiles,
-        );
+        if self.current_frame % SPEED == 0 {
+            wfc::copy_superpositions_to_grid(
+                self.output_image.pixels_mut(),
+                &self.superpositions,
+                &self.parameters.wfc_tiles,
+            );
+        }
 
         display_image(
             &self.output_image,
@@ -151,6 +155,7 @@ impl WindowHandler for WinHandler {
         );
 
         helper.request_redraw();
+        self.current_frame += 1;
     }
 }
 

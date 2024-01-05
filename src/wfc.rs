@@ -87,22 +87,18 @@ impl WFCParameters {
         let mut tile_ids = HashMap::<Tile, usize>::new();
         let mut tiles = Vec::<Tile>::new();
         let mut frequency = Vec::<u32>::new();
-        //let mut grid_ids = vec![0usize; data.width * data.height];
         for y in 0..data.height() {
             for x in 0..data.width() {
                 let tile = sample_square(data, tile_sz, x as isize, y as isize);
 
                 match tile_ids.get(&tile) {
                     Some(i) => {
-                        //grid_ids[y * data.width + x] = *i;
                         frequency[*i] += 1;
                     }
                     None => {
                         tile_ids.insert(tile.clone(), id);
-                        //grid_ids[y * data.width + x] = id;
                         tiles.push(tile.clone());
                         frequency.push(1);
-
                         id += 1;
                     }
                 }
@@ -374,7 +370,7 @@ fn generate_weighted(rng: &mut ThreadRng, weights: &[u32]) -> usize {
         }
     }
 
-    return weights.len() - 1;
+    weights.len() - 1
 }
 
 pub fn random_element<T: Copy>(vec: &[T], rng: &mut ThreadRng, weights: Option<&[u32]>) -> Option<T> {
