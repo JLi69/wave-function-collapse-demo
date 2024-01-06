@@ -7,7 +7,7 @@ pub struct ImageData {
     height: usize,
 }
 
-fn wrap_value(v: isize, max: usize) -> usize {
+pub fn wrap_value(v: isize, max: usize) -> usize {
     if v < 0 {
         max - ((-v) as usize % max)
     } else {

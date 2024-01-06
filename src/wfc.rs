@@ -1,4 +1,4 @@
-use crate::{image_data::u32_to_color, image_data::ImageData};
+use crate::{image_data::u32_to_color, image_data::ImageData, image_data::wrap_value};
 use rand::{rngs::ThreadRng, Rng};
 use std::collections::HashMap;
 
@@ -204,10 +204,6 @@ pub fn copy_superpositions_to_grid(
     }
 }
 
-fn out_of_bounds(x: isize, y: isize, w: usize, h: usize) -> bool {
-    x < 0 || y < 0 || x >= w as isize || y >= h as isize
-}
-
 pub fn update_adjacent_tiles(
     superpositions: &mut [Vec<usize>],
     x: isize,
@@ -216,17 +212,9 @@ pub fn update_adjacent_tiles(
     h: usize,
     rules: &RuleTable,
 ) {
-    if out_of_bounds(x, y, w, h) {
-        return;
-    }
-
     for (direction, offset) in OFFSETS.iter().enumerate() {
-        let adj_x = offset.0 + x;
-        let adj_y = offset.1 + y;
-
-        if out_of_bounds(adj_x, adj_y, w, h) {
-            continue;
-        }
+        let adj_x = wrap_value(offset.0 + x, w) as isize;
+        let adj_y = wrap_value(offset.1 + y, h) as isize; 
 
         let mut allowed = vec![false; rules.tile_count];
         for tile in &superpositions[x as usize + y as usize * w] {
@@ -269,24 +257,22 @@ pub fn propagate(
         };
 
         for direction in 0..OFFSETS.len() {
-            let (adj_x, adj_y) = (posx + OFFSETS[direction].0, posy + OFFSETS[direction].1);
+            let (adj_x, adj_y) = (
+                wrap_value(posx + OFFSETS[direction].0, w), 
+                wrap_value(posy + OFFSETS[direction].1, h)
+            );
 
-            if out_of_bounds(adj_x, adj_y, w, h) {
-                continue;
-            }
-
-            let index = adj_x as usize + adj_y as usize * w;
+            let index = adj_x + adj_y * w;
             prev_entropy[direction] = superpositions[index].len();
         }
 
         update_adjacent_tiles(superpositions, posx, posy, w, h, wfc_rules);
 
         for direction in 0..OFFSETS.len() {
-            let (adj_x, adj_y) = (posx + OFFSETS[direction].0, posy + OFFSETS[direction].1);
-
-            if out_of_bounds(adj_x, adj_y, w, h) {
-                continue;
-            }
+            let (adj_x, adj_y) = (
+                wrap_value(posx + OFFSETS[direction].0, w) as isize,
+                wrap_value(posy + OFFSETS[direction].1, h) as isize
+            );
 
             let index = adj_x as usize + adj_y as usize * w;
 
