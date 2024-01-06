@@ -150,7 +150,7 @@ fn main_loop(data: &ImageData, wfc_parameters: &wfc::WFCParameters) -> Result<()
                 &wfc_parameters.wfc_tiles,
             );
 
-            output_texture = texture_from_image(&output_image, &texture_creator)?;
+            output_texture = texture_from_image(&output_image, &texture_creator)?; 
         }
 
         events = process_events(&mut event_pump);
@@ -176,10 +176,10 @@ fn main() -> Result<(), String> {
         Ok(data) => {
             let wfc_parameters = wfc::WFCParameters::from_image_data(&data, 3);
 
-            /*let start = ::std::time::Instant::now();
-            let _generated = wfc_parameters.generate_grid(64, 64);
+            let start = ::std::time::Instant::now();
+            let _generated = wfc_parameters.generate_grid(64, 64).unwrap();
             let seconds = start.elapsed().as_secs_f64();
-            eprintln!("Took {} sec to generate image", seconds);*/
+            eprintln!("Took {} sec to generate image", seconds);
 
             main_loop(&data, &wfc_parameters)?;
         }
