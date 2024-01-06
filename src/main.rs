@@ -77,7 +77,7 @@ impl WinHandler {
 impl WindowHandler for WinHandler {
     fn on_draw(&mut self, helper: &mut WindowHelper, graphics: &mut Graphics2D) {
         graphics.clear_screen(Color::from_rgb(1.0, 1.0, 1.0));
-        display_image(&self.input_image, graphics, PIXEL_SIZE, 0.0, 0.0);
+        display_image(&self.input_image, graphics, PIXEL_SIZE, PIXEL_SIZE, PIXEL_SIZE);
 
         let mut rng = rand::thread_rng();
 
@@ -150,8 +150,8 @@ impl WindowHandler for WinHandler {
             &self.output_image,
             graphics,
             PIXEL_SIZE,
-            self.input_image.width() as f32 * PIXEL_SIZE + PIXEL_SIZE,
-            0.0,
+            self.input_image.width() as f32 * PIXEL_SIZE + PIXEL_SIZE + PIXEL_SIZE,
+            PIXEL_SIZE,
         );
 
         helper.request_redraw();
