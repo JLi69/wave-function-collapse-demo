@@ -1,6 +1,6 @@
 use crate::{image_data::u32_to_color, image_data::wrap_value, image_data::ImageData};
 use rand::{rngs::ThreadRng, Rng};
-use std::collections::{HashMap, BinaryHeap};
+use std::collections::{BinaryHeap, HashMap};
 
 type Tile = Vec<u32>;
 const OFFSETS: [(isize, isize); 4] = [(0, 1), (1, 0), (0, -1), (-1, 0)];
@@ -49,7 +49,7 @@ impl Eq for TileIndex {}
 
 impl PartialOrd for TileIndex {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        other.0.partial_cmp(&self.0)
+        Some(self.cmp(other))
     }
 }
 
@@ -80,7 +80,10 @@ impl WFCState {
         let mut queue = BinaryHeap::new();
         let mut rng = rand::thread_rng();
         let rand_index = rng.gen::<usize>() % (w * h);
-        queue.push(TileIndex(entropy(&superpos[rand_index], frequencies), rand_index));
+        queue.push(TileIndex(
+            entropy(&superpos[rand_index], frequencies),
+            rand_index,
+        ));
 
         Self {
             superpositions: superpos.clone(),
@@ -188,9 +191,7 @@ impl WFCParameters {
         rng: &mut ThreadRng,
     ) -> Result<(), String> {
         //Find the tile with the lowest "entropy"
-        let rand_tile_index = wfc_state.tile_queue
-            .pop()
-            .unwrap_or(TileIndex(0.0, 0)).1;
+        let rand_tile_index = wfc_state.tile_queue.pop().unwrap_or(TileIndex(0.0, 0)).1;
 
         if wfc_state.superpositions[rand_tile_index].len() <= 1 {
             return Ok(());
@@ -212,7 +213,15 @@ impl WFCParameters {
         let x = (rand_tile_index % w) as isize;
         let y = (rand_tile_index / w) as isize;
         //Propagate
-        let failed = propagate(&mut wfc_state.superpositions, &self.wfc_rules, x, y, w, h, &mut wfc_state.tile_queue, &self.wfc_frequency);
+        let failed = propagate(
+            &mut wfc_state.superpositions,
+            self,
+            x,
+            y,
+            w,
+            h,
+            &mut wfc_state.tile_queue,
+        );
         if failed {
             return Err("WFC Failed".to_string());
         }
@@ -228,7 +237,7 @@ impl WFCParameters {
 
         let mut wfc_state = WFCState::new(w, h, &self.wfc_tiles, &self.wfc_frequency);
         //Repeat until we have collapsed each tile into a single state
-        while !wfc_state.done() { 
+        while !wfc_state.done() {
             self.step(w, h, &mut wfc_state, &mut rng)?;
         }
 
@@ -307,13 +316,12 @@ pub fn update_adjacent_tiles(
 //false otherwise
 fn propagate(
     superpositions: &mut [Vec<usize>],
-    wfc_rules: &RuleTable,
+    parameters: &WFCParameters,
     x: isize,
     y: isize,
     w: usize,
     h: usize,
     tile_queue: &mut BinaryHeap<TileIndex>,
-    frequencies: &[u32],
 ) -> bool {
     let mut stack = Vec::<(isize, isize)>::new();
     let mut prev_entropy = vec![0; OFFSETS.len()];
@@ -335,7 +343,7 @@ fn propagate(
             prev_entropy[direction] = superpositions[index].len();
         }
 
-        update_adjacent_tiles(superpositions, posx, posy, w, h, wfc_rules);
+        update_adjacent_tiles(superpositions, posx, posy, w, h, &parameters.wfc_rules);
 
         for direction in 0..OFFSETS.len() {
             let (adj_x, adj_y) = (
@@ -347,11 +355,14 @@ fn propagate(
 
             if superpositions[index].is_empty() {
                 return true;
-            } 
+            }
 
-            if superpositions[index].len() == prev_entropy[direction] { 
+            if superpositions[index].len() == prev_entropy[direction] {
                 if superpositions[index].len() > 1 {
-                    tile_queue.push(TileIndex(entropy(&superpositions[index], frequencies), index));
+                    tile_queue.push(TileIndex(
+                        entropy(&superpositions[index], &parameters.wfc_frequency),
+                        index,
+                    ));
                 }
                 continue;
             }

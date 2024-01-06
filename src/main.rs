@@ -7,7 +7,7 @@ use sdl2::{
     video::{Window, WindowContext},
     EventPump,
 };
-use std::env;
+use std::{env, path::Path};
 
 mod image_data;
 mod wfc;
@@ -112,7 +112,7 @@ fn main_loop(data: &ImageData, wfc_parameters: &wfc::WFCParameters) -> Result<()
 
     let mut events = ProcessedEvents { can_quit: false };
 
-    let input_texture = texture_from_image(&data, &texture_creator)?;
+    let input_texture = texture_from_image(data, &texture_creator)?;
     let w = 64;
     let h = 64;
     let mut output_image = ImageData::new(w, h);
@@ -150,7 +150,7 @@ fn main_loop(data: &ImageData, wfc_parameters: &wfc::WFCParameters) -> Result<()
                 &wfc_parameters.wfc_tiles,
             );
 
-            output_texture = texture_from_image(&output_image, &texture_creator)?; 
+            output_texture = texture_from_image(&output_image, &texture_creator)?;
         }
 
         events = process_events(&mut event_pump);
@@ -159,22 +159,54 @@ fn main_loop(data: &ImageData, wfc_parameters: &wfc::WFCParameters) -> Result<()
     Ok(())
 }
 
+fn parse_args(args: Vec<String>) -> (String, isize) {
+    let mut path = "".to_string();
+    let mut n = 3;
+
+    for arg in &args {
+        let tmp_n: isize = arg.parse().unwrap_or(-1);
+
+        if tmp_n > 4 {
+            continue;
+        }
+
+        if tmp_n > 0 {
+            n = tmp_n;
+        } else {
+            path = (*arg).clone();
+        }
+    }
+
+    let file_path = Path::new(&path);
+    if path.is_empty() {
+        eprintln!("No input file specified!");
+        std::process::exit(1);
+    }
+    if !file_path.is_file() {
+        eprintln!("{path} does not exist!");
+        std::process::exit(1);
+    }
+
+    (path, n)
+}
+
 fn main() -> Result<(), String> {
     //Get command line arguments
     let args: Vec<String> = env::args().collect();
 
     //If we have no arguments, exit program
     if args.len() == 1 {
-        eprintln!("usage: {} [input file]", args[0]);
+        eprintln!("usage: {} [input file] [n]", args[0]);
         std::process::exit(1);
     }
 
     //Otherwise, attempt to open the png file that was provided as an argument
-    let img_data = ImageData::load_png(&args[1]);
+    let parsed_args = parse_args(args);
+    let img_data = ImageData::load_png(&parsed_args.0);
 
     match img_data {
         Ok(data) => {
-            let wfc_parameters = wfc::WFCParameters::from_image_data(&data, 3);
+            let wfc_parameters = wfc::WFCParameters::from_image_data(&data, parsed_args.1);
 
             /*let start = ::std::time::Instant::now();
             let _generated = wfc_parameters.generate_grid(64, 64).unwrap();
@@ -184,7 +216,7 @@ fn main() -> Result<(), String> {
             main_loop(&data, &wfc_parameters)?;
         }
         Err(msg) => {
-            eprintln!("failed to open file: {}", args[1]);
+            eprintln!("failed to open file: {}", parsed_args.0);
             eprintln!("{msg}");
             return Err(msg);
         }
