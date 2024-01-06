@@ -18,6 +18,8 @@ cargo build --release
 cargo run --release images/inputimage1.png
 ```
 
+Dependencies: SDL2
+
 ## Helpful resources
 
 These are some sources that I found helpful when researching how to implement

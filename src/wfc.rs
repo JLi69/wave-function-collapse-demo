@@ -207,30 +207,7 @@ impl WFCParameters {
 
         let mut wfc_state = WFCState::new(w, h, &self.wfc_tiles, &self.wfc_frequency);
         //Repeat until we have collapsed each tile into a single state
-        while !wfc_state.lowest_entropy.is_empty() {
-            /*
-            //Find the tile with the lowest "entropy"
-            let rand_tile_index = random_element(&lowest_entropy_tiles, &mut rng, None).unwrap_or(0);
-
-            let weights: Vec<u32> = superpositions[rand_tile_index].iter()
-                .map(|tile| self.wfc_frequency[*tile])
-                .collect();
-
-            //Collapse that tile into a random state that is allowed
-            superpositions[rand_tile_index] =
-                vec![random_element(&superpositions[rand_tile_index], &mut rng, Some(&weights)).unwrap_or(0)];
-            //Update surrounding tiles to only have valid tiles in the superposition
-            let x = (rand_tile_index % w) as isize;
-            let y = (rand_tile_index / w) as isize;
-            //Propagate
-            let failed = propagate(&mut superpositions, &self.wfc_rules, x, y, w, h);
-            if failed {
-                return Err("WFC Failed".to_string());
-            }
-
-            not_collapsed.retain(|index| superpositions[*index].len() > 1);
-            lowest_entropy_tiles =
-                lowest_entropy(&superpositions, &not_collapsed, &self.wfc_frequency);*/
+        while !wfc_state.lowest_entropy.is_empty() { 
             self.step(w, h, &mut wfc_state, &mut rng)?;
         }
 
