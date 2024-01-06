@@ -176,10 +176,10 @@ fn main() -> Result<(), String> {
         Ok(data) => {
             let wfc_parameters = wfc::WFCParameters::from_image_data(&data, 3);
 
-            let start = ::std::time::Instant::now();
+            /*let start = ::std::time::Instant::now();
             let _generated = wfc_parameters.generate_grid(64, 64).unwrap();
             let seconds = start.elapsed().as_secs_f64();
-            eprintln!("Took {} sec to generate image", seconds);
+            eprintln!("Took {} sec to generate image", seconds);*/
 
             main_loop(&data, &wfc_parameters)?;
         }
