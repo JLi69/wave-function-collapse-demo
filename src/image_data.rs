@@ -15,6 +15,7 @@ pub fn wrap_value(v: isize, max: usize) -> usize {
     }
 }
 
+#[allow(dead_code)]
 impl ImageData {
     pub fn new(w: usize, h: usize) -> Self {
         Self {
@@ -72,7 +73,7 @@ impl ImageData {
         let wrapped_x = wrap_value(x, self.width);
         let wrapped_y = wrap_value(y, self.height);
         self.pixels[wrapped_x + wrapped_y * self.width]
-    } 
+    }
 
     pub fn width(&self) -> usize {
         self.width

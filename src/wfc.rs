@@ -1,4 +1,4 @@
-use crate::{image_data::u32_to_color, image_data::ImageData, image_data::wrap_value};
+use crate::{image_data::u32_to_color, image_data::wrap_value, image_data::ImageData};
 use rand::{rngs::ThreadRng, Rng};
 use std::collections::HashMap;
 
@@ -39,6 +39,37 @@ impl RuleTable {
 
     fn okay(&self, direction: usize, id1: usize, id2: usize) -> bool {
         self.rules[id1 * self.tile_count * OFFSETS.len() + direction * self.tile_count + id2]
+    }
+}
+
+pub struct WFCState {
+    superpositions: Vec<Vec<usize>>,
+    not_collapsed: Vec<usize>,
+    lowest_entropy: Vec<usize>,
+}
+
+impl WFCState {
+    pub fn new(w: usize, h: usize, tiles: &Vec<u32>, frequencies: &[u32]) -> Self {
+        let superpos = {
+            let id_list: Vec<usize> = (0..tiles.len()).collect();
+            vec![id_list; w * h]
+        };
+
+        let not_collapsed_tiles: Vec<usize> = (0..superpos.len()).collect();
+
+        Self {
+            superpositions: superpos.clone(),
+            not_collapsed: not_collapsed_tiles.clone(),
+            lowest_entropy: lowest_entropy(&superpos, &not_collapsed_tiles, frequencies),
+        }
+    }
+
+    pub fn superpositions(&self) -> &[Vec<usize>] {
+        &self.superpositions
+    }
+
+    pub fn done(&self) -> bool {
+        self.not_collapsed.is_empty()
     }
 }
 
@@ -125,22 +156,59 @@ impl WFCParameters {
         }
     }
 
+    pub fn step(
+        &self,
+        w: usize,
+        h: usize,
+        wfc_state: &mut WFCState,
+        rng: &mut ThreadRng,
+    ) -> Result<(), String> {
+        //Find the tile with the lowest "entropy"
+        let rand_tile_index = random_element(&wfc_state.lowest_entropy, rng, None).unwrap_or(0);
+
+        let weights: Vec<u32> = wfc_state.superpositions[rand_tile_index]
+            .iter()
+            .map(|tile| self.wfc_frequency[*tile])
+            .collect();
+
+        //Collapse that tile into a random state that is allowed
+        wfc_state.superpositions[rand_tile_index] = vec![random_element(
+            &wfc_state.superpositions[rand_tile_index],
+            rng,
+            Some(&weights),
+        )
+        .unwrap_or(0)];
+        //Update surrounding tiles to only have valid tiles in the superposition
+        let x = (rand_tile_index % w) as isize;
+        let y = (rand_tile_index / w) as isize;
+        //Propagate
+        let failed = propagate(&mut wfc_state.superpositions, &self.wfc_rules, x, y, w, h);
+        if failed {
+            return Err("WFC Failed".to_string());
+        }
+
+        wfc_state
+            .not_collapsed
+            .retain(|index| wfc_state.superpositions[*index].len() > 1);
+        wfc_state.lowest_entropy = lowest_entropy(
+            &wfc_state.superpositions,
+            &wfc_state.not_collapsed,
+            &self.wfc_frequency,
+        );
+
+        Ok(())
+    }
+
     #[allow(dead_code)]
     pub fn generate_grid(&self, w: usize, h: usize) -> Result<ImageData, String> {
         let mut grid = vec![0; w * h];
 
-        let mut superpositions = {
-            let id_list: Vec<usize> = (0..self.wfc_tiles.len()).collect();
-            vec![id_list; w * h]
-        };
-
         let mut rng = rand::thread_rng();
 
-        let mut not_collapsed: Vec<usize> = (0..superpositions.len()).collect();
-        let mut lowest_entropy_tiles =
-            lowest_entropy(&superpositions, &not_collapsed, &self.wfc_frequency);
+        let mut wfc_state = WFCState::new(w, h, &self.wfc_tiles, &self.wfc_frequency);
         //Repeat until we have collapsed each tile into a single state
-        while !lowest_entropy_tiles.is_empty() {
+        while !wfc_state.lowest_entropy.is_empty() {
+            /*
             //Find the tile with the lowest "entropy"
             let rand_tile_index = random_element(&lowest_entropy_tiles, &mut rng, None).unwrap_or(0);
 
@@ -162,10 +230,11 @@ impl WFCParameters {
 
             not_collapsed.retain(|index| superpositions[*index].len() > 1);
             lowest_entropy_tiles =
-                lowest_entropy(&superpositions, &not_collapsed, &self.wfc_frequency);
+                lowest_entropy(&superpositions, &not_collapsed, &self.wfc_frequency);*/
+            self.step(w, h, &mut wfc_state, &mut rng)?;
         }
 
-        copy_superpositions_to_grid(&mut grid, &superpositions, &self.wfc_tiles);
+        copy_superpositions_to_grid(&mut grid, &wfc_state.superpositions, &self.wfc_tiles);
 
         Ok(ImageData::from_pixels(&grid, w, h))
     }
@@ -214,7 +283,7 @@ pub fn update_adjacent_tiles(
 ) {
     for (direction, offset) in OFFSETS.iter().enumerate() {
         let adj_x = wrap_value(offset.0 + x, w) as isize;
-        let adj_y = wrap_value(offset.1 + y, h) as isize; 
+        let adj_y = wrap_value(offset.1 + y, h) as isize;
 
         let mut allowed = vec![false; rules.tile_count];
         for tile in &superpositions[x as usize + y as usize * w] {
@@ -258,8 +327,8 @@ pub fn propagate(
 
         for direction in 0..OFFSETS.len() {
             let (adj_x, adj_y) = (
-                wrap_value(posx + OFFSETS[direction].0, w), 
-                wrap_value(posy + OFFSETS[direction].1, h)
+                wrap_value(posx + OFFSETS[direction].0, w),
+                wrap_value(posy + OFFSETS[direction].1, h),
             );
 
             let index = adj_x + adj_y * w;
@@ -271,7 +340,7 @@ pub fn propagate(
         for direction in 0..OFFSETS.len() {
             let (adj_x, adj_y) = (
                 wrap_value(posx + OFFSETS[direction].0, w) as isize,
-                wrap_value(posy + OFFSETS[direction].1, h) as isize
+                wrap_value(posy + OFFSETS[direction].1, h) as isize,
             );
 
             let index = adj_x as usize + adj_y as usize * w;
@@ -347,9 +416,9 @@ fn generate_weighted(rng: &mut ThreadRng, weights: &[u32]) -> usize {
         total += v;
     }
     let rand_value = rng.gen::<u32>() % total;
-    
+
     let mut current_total = 0;
-    for (i, v) in weights.iter().enumerate() { 
+    for (i, v) in weights.iter().enumerate() {
         current_total += v;
         if rand_value < current_total {
             return i;
@@ -359,15 +428,17 @@ fn generate_weighted(rng: &mut ThreadRng, weights: &[u32]) -> usize {
     weights.len() - 1
 }
 
-pub fn random_element<T: Copy>(vec: &[T], rng: &mut ThreadRng, weights: Option<&[u32]>) -> Option<T> {
+pub fn random_element<T: Copy>(
+    vec: &[T],
+    rng: &mut ThreadRng,
+    weights: Option<&[u32]>,
+) -> Option<T> {
     if vec.is_empty() {
         return None;
     }
 
     match weights {
-        Some(weight_list) => {
-            Some(vec[generate_weighted(rng, weight_list)])
-        }
+        Some(weight_list) => Some(vec[generate_weighted(rng, weight_list)]),
         _ => {
             let index = rng.gen::<usize>() % vec.len();
             Some(vec[index])

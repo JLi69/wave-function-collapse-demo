@@ -1,165 +1,165 @@
-use speedy2d::{
-    color::Color,
-    dimen::Vector2,
-    shape::Rect,
-    window::{WindowHandler, WindowHelper},
-    Graphics2D, Window,
+use crate::image_data::ImageData;
+use sdl2::{
+    event::Event,
+    pixels::{Color, PixelFormatEnum},
+    rect::Rect,
+    render::{Canvas, Texture, TextureCreator},
+    video::{Window, WindowContext},
+    EventPump,
 };
 use std::env;
-use crate::image_data::ImageData;
 
-mod wfc;
 mod image_data;
+mod wfc;
 
 const PIXEL_SIZE: f32 = 8.0;
-const SPEED: u32 = 6;
 
-//Simple function to display the image onto the window
-//x and y are the top left corner of the image
-fn display_image(image: &ImageData, graphics: &mut Graphics2D, pixel_size: f32, x: f32, y: f32) {
-    image.pixels()
-        .iter()
-        .enumerate()
-        .map(|pixel| {
-            let col = image_data::u32_to_color(image.get_pixel(pixel.0 % image.height(), pixel.0 / image.height()));
-            (
-                Rect::new(
-                    Vector2::new(
-                        (pixel.0 % image.height()) as f32,
-                        (pixel.0 / image.height()) as f32,
-                    ) * pixel_size
-                        + Vector2::new(x, y),
-                    Vector2::new(
-                        (pixel.0 % image.height() + 1) as f32,
-                        (pixel.0 / image.height() + 1) as f32,
-                    ) * pixel_size
-                        + Vector2::new(x, y),
-                ),
-                Color::from_rgb(col.0, col.1, col.2),
-            )
-        })
-        .for_each(|pixel| graphics.draw_rectangle(pixel.0, pixel.1));
+//Process events
+struct ProcessedEvents {
+    can_quit: bool,
 }
 
-struct WinHandler {
-    input_image: ImageData,
-    output_image: ImageData,
-    parameters: wfc::WFCParameters,
-    lowest_entropy_tiles: Vec<usize>,
-    superpositions: Vec<Vec<usize>>,
-    not_collapsed: Vec<usize>,
-    current_frame: u32
-}
+fn process_events(event_pump: &mut EventPump) -> ProcessedEvents {
+    let mut processed = ProcessedEvents { can_quit: false };
 
-impl WinHandler {
-    fn new(input_img: &ImageData, wfc_parameters: &wfc::WFCParameters) -> Self {
-        let w = 64;
-        let h = 64;
-
-        let superpos = {
-            let id_list: Vec<usize> = (0..wfc_parameters.wfc_tiles.len()).collect();
-            vec![id_list; w * h]
-        };
-
-        Self {
-            input_image: input_img.clone(),
-            output_image: ImageData::new(w, h),
-            parameters: wfc_parameters.clone(),
-            lowest_entropy_tiles: vec![],
-            superpositions: superpos.clone(),
-            not_collapsed: (0..superpos.len()).collect(),
-            current_frame: 0
+    for event in event_pump.poll_iter() {
+        if let Event::Quit { .. } = event {
+            processed.can_quit = true;
         }
     }
+
+    processed
 }
 
-//Main drawing loop
-impl WindowHandler for WinHandler {
-    fn on_draw(&mut self, helper: &mut WindowHelper, graphics: &mut Graphics2D) {
-        graphics.clear_screen(Color::from_rgb(1.0, 1.0, 1.0));
-        display_image(&self.input_image, graphics, PIXEL_SIZE, PIXEL_SIZE, PIXEL_SIZE);
+fn texture_from_image<'a>(
+    data: &ImageData,
+    texture_creator: &'a TextureCreator<WindowContext>,
+) -> Result<Texture<'a>, String> {
+    //Create the texture
+    let mut texture = texture_creator
+        .create_texture_streaming(
+            PixelFormatEnum::BGRA8888,
+            data.width() as u32,
+            data.height() as u32,
+        )
+        .map_err(|e| e.to_string())?;
 
-        let mut rng = rand::thread_rng();
+    texture
+        .with_lock(None, |pixels: &mut [u8], _pitch: usize| {
+            for y in 0..data.height() {
+                for x in 0..data.width() {
+                    let pixel = data.get_pixel(x, y);
+                    let col = image_data::u32_to_color(pixel);
+                    pixels[y * data.width() * 4 + x * 4 + 1] = (col.0 * 255.0) as u8;
+                    pixels[y * data.width() * 4 + x * 4 + 2] = (col.1 * 255.0) as u8;
+                    pixels[y * data.width() * 4 + x * 4 + 3] = (col.2 * 255.0) as u8;
+                    pixels[y * data.width() * 4 + x * 4] = 0xff;
+                }
+            }
+        })
+        .map_err(|e| e.to_string())?;
 
-        self.lowest_entropy_tiles = wfc::lowest_entropy(
-            &self.superpositions,
-            &self.not_collapsed,
-            &self.parameters.wfc_frequency
-        );
-        //Repeat until we have collapsed each tile into a single state
-        if !self.lowest_entropy_tiles.is_empty() {
-            //Find the tile with the lowest "entropy"
-            let rand_tile_index =
-                wfc::random_element(&self.lowest_entropy_tiles, &mut rng, None).unwrap_or(0);
-            //Collapse that tile into a random state that is allowed
-            let weights: Vec<u32> = self.superpositions[rand_tile_index].iter()
-                .map(|tile| self.parameters.wfc_frequency[*tile])
-                .collect();
-            self.superpositions[rand_tile_index] =
-                vec![
-                    wfc::random_element(&self.superpositions[rand_tile_index], &mut rng, Some(&weights))
-                        .unwrap_or(0),
-                ];
-            //Update surrounding tiles to only have valid tiles in the superposition
-            let x = (rand_tile_index % self.output_image.width()) as isize;
-            let y = (rand_tile_index / self.output_image.width()) as isize;
-            //Propagate
-            let failed = wfc::propagate(
-                &mut self.superpositions,
-                &self.parameters.wfc_rules,
-                x,
-                y,
-                self.output_image.width(),
-                self.output_image.height(),
-            );
+    Ok(texture)
+}
 
-            if failed {
-                eprintln!("FAILED - RESTARTING WFC");
-                let w = self.output_image.width();
-                let h = self.output_image.height();
-                self.output_image = ImageData::new(w, h);
-                self.lowest_entropy_tiles.clear();
-                self.superpositions = {
-                    let id_list: Vec<usize> = (0..self.parameters.wfc_tiles.len()).collect();
-                    vec![id_list; w * h]
-                };
+fn display_loop(
+    canvas: &mut Canvas<Window>,
+    input_texture: &Texture,
+    output_texture: &Texture,
+) -> Result<(), String> {
+    canvas.clear();
 
-                self.not_collapsed = (0..self.superpositions.len()).collect();
-                helper.request_redraw();
-                return;
+    canvas.copy(
+        input_texture,
+        None,
+        Rect::new(
+            PIXEL_SIZE as i32,
+            PIXEL_SIZE as i32,
+            PIXEL_SIZE as u32 * input_texture.query().width,
+            PIXEL_SIZE as u32 * input_texture.query().height,
+        ),
+    )?;
+
+    canvas.copy(
+        output_texture,
+        None,
+        Rect::new(
+            PIXEL_SIZE as i32 * 2 + input_texture.query().width as i32 * PIXEL_SIZE as i32,
+            PIXEL_SIZE as i32,
+            PIXEL_SIZE as u32 * output_texture.query().width,
+            PIXEL_SIZE as u32 * output_texture.query().height,
+        ),
+    )?;
+
+    canvas.present();
+
+    Ok(())
+}
+
+fn main_loop(data: &ImageData, wfc_parameters: &wfc::WFCParameters) -> Result<(), String> {
+    //Init sdl
+    let ctx = sdl2::init()?;
+    let video_subsystem = ctx.video()?;
+    let window = video_subsystem
+        .window("wave function collapse demo", 800, 640)
+        .position_centered()
+        .resizable()
+        .build()
+        .map_err(|e| e.to_string())?;
+    let mut canvas = window.into_canvas().build().map_err(|e| e.to_string())?;
+    let texture_creator = canvas.texture_creator();
+    let mut event_pump = ctx.event_pump()?;
+
+    let mut events = ProcessedEvents { can_quit: false };
+
+    let input_texture = texture_from_image(&data, &texture_creator)?;
+    let w = 64;
+    let h = 64;
+    let mut output_image = ImageData::new(w, h);
+    let mut output_texture = texture_from_image(&output_image, &texture_creator)?;
+
+    let mut rng = rand::thread_rng();
+    let mut wfc_state = wfc::WFCState::new(
+        w,
+        h,
+        &wfc_parameters.wfc_tiles,
+        &wfc_parameters.wfc_frequency,
+    );
+    while !events.can_quit {
+        canvas.set_draw_color(Color::RGB(255, 255, 255));
+        display_loop(&mut canvas, &input_texture, &output_texture)?;
+
+        if !wfc_state.done() {
+            match wfc_parameters.step(w, h, &mut wfc_state, &mut rng) {
+                Ok(()) => {}
+                Err(msg) => {
+                    eprintln!("{msg}");
+                    //Reset the state
+                    wfc_state = wfc::WFCState::new(
+                        w,
+                        h,
+                        &wfc_parameters.wfc_tiles,
+                        &wfc_parameters.wfc_frequency,
+                    );
+                }
             }
 
-            self.not_collapsed
-                .retain(|index| self.superpositions[*index].len() > 1);
-            self.lowest_entropy_tiles = wfc::lowest_entropy(
-                &self.superpositions,
-                &self.not_collapsed,
-                &self.parameters.wfc_frequency
-            );
-        }
-
-        if self.current_frame % SPEED == 0 {
             wfc::copy_superpositions_to_grid(
-                self.output_image.pixels_mut(),
-                &self.superpositions,
-                &self.parameters.wfc_tiles,
+                output_image.pixels_mut(),
+                wfc_state.superpositions(),
+                &wfc_parameters.wfc_tiles,
             );
+
+            output_texture = texture_from_image(&output_image, &texture_creator)?;
         }
 
-        display_image(
-            &self.output_image,
-            graphics,
-            PIXEL_SIZE,
-            self.input_image.width() as f32 * PIXEL_SIZE + PIXEL_SIZE + PIXEL_SIZE,
-            PIXEL_SIZE,
-        );
-
-        helper.request_redraw();
-        self.current_frame += 1;
+        events = process_events(&mut event_pump);
     }
+
+    Ok(())
 }
 
-fn main() {
+fn main() -> Result<(), String> {
     //Get command line arguments
     let args: Vec<String> = env::args().collect();
 
@@ -181,12 +181,14 @@ fn main() {
             let seconds = start.elapsed().as_secs_f64();
             eprintln!("Took {} sec to generate image", seconds);*/
 
-            let window = Window::new_centered("wave function collapse demo", (800, 640)).unwrap();
-            window.run_loop(WinHandler::new(&data, &wfc_parameters));
+            main_loop(&data, &wfc_parameters)?;
         }
         Err(msg) => {
             eprintln!("failed to open file: {}", args[1]);
             eprintln!("{msg}");
+            return Err(msg);
         }
     }
+
+    Ok(())
 }

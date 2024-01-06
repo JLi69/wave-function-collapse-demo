@@ -8,4 +8,4 @@ edition = "2021"
 [dependencies]
 png = "0.17.10"
 rand = "0.8.5"
-speedy2d = "2.0.0"
+sdl2 = "0.36.0"
