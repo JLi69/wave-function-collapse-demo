@@ -13,6 +13,7 @@ mod image_data;
 mod wfc;
 
 const PIXEL_SIZE: f32 = 8.0;
+const SPEED: u32 = 16;
 
 //Process events
 struct ProcessedEvents {
@@ -67,6 +68,7 @@ fn display_loop(
     input_texture: &Texture,
     output_texture: &Texture,
 ) -> Result<(), String> {
+    canvas.set_draw_color(Color::RGB(255, 255, 255));
     canvas.clear();
 
     canvas.copy(
@@ -106,7 +108,11 @@ fn main_loop(data: &ImageData, wfc_parameters: &wfc::WFCParameters) -> Result<()
         .resizable()
         .build()
         .map_err(|e| e.to_string())?;
-    let mut canvas = window.into_canvas().build().map_err(|e| e.to_string())?;
+    let mut canvas = window
+        .into_canvas()
+        .present_vsync()
+        .build()
+        .map_err(|e| e.to_string())?;
     let texture_creator = canvas.texture_creator();
     let mut event_pump = ctx.event_pump()?;
 
@@ -117,6 +123,7 @@ fn main_loop(data: &ImageData, wfc_parameters: &wfc::WFCParameters) -> Result<()
     let h = 64;
     let mut output_image = ImageData::new(w, h);
     let mut output_texture = texture_from_image(&output_image, &texture_creator)?;
+    let mut current_frame = 0;
 
     let mut rng = rand::thread_rng();
     let mut wfc_state = wfc::WFCState::new(
@@ -126,8 +133,9 @@ fn main_loop(data: &ImageData, wfc_parameters: &wfc::WFCParameters) -> Result<()
         &wfc_parameters.wfc_frequency,
     );
     while !events.can_quit {
-        canvas.set_draw_color(Color::RGB(255, 255, 255));
-        display_loop(&mut canvas, &input_texture, &output_texture)?;
+        if current_frame % SPEED == 0 {
+            display_loop(&mut canvas, &input_texture, &output_texture)?;
+        }
 
         if !wfc_state.done() {
             match wfc_parameters.step(w, h, &mut wfc_state, &mut rng) {
@@ -144,14 +152,18 @@ fn main_loop(data: &ImageData, wfc_parameters: &wfc::WFCParameters) -> Result<()
                 }
             }
 
-            wfc::copy_superpositions_to_grid(
-                output_image.pixels_mut(),
-                wfc_state.superpositions(),
-                &wfc_parameters.wfc_tiles,
-            );
+            if current_frame % SPEED == 0 {
+                wfc::copy_superpositions_to_grid(
+                    output_image.pixels_mut(),
+                    wfc_state.superpositions(),
+                    &wfc_parameters.wfc_tiles,
+                );
 
-            output_texture = texture_from_image(&output_image, &texture_creator)?;
+                output_texture = texture_from_image(&output_image, &texture_creator)?;
+            }
         }
+
+        current_frame += 1;
 
         events = process_events(&mut event_pump);
     }
